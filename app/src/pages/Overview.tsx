@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect } from 'react';
-import { chanlunMockData, dingchangMockData, popularETFs } from '@/data/mockData';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { api } from '@/services/api';
 import { dataCache } from '@/services/dataCache';
+import type { ChanlunResult, DingChangResult } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 import {
   FileText,
@@ -16,6 +17,7 @@ import {
   BarChart3,
   LineChart,
   Award,
+  Loader2,
 } from 'lucide-react';
 import {
   RadarChart,
@@ -38,40 +40,203 @@ interface OverviewProps {
   initialCode?: string;
 }
 
+// 后端数据可能为snake_case，映射到前端camelCase
+function normalizeChanlun(raw: Record<string, unknown>): ChanlunResult | null {
+  if (!raw) return null;
+  const get = (k: string) => (raw[k] !== undefined ? raw[k] : raw[k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]);
+
+  const result: ChanlunResult = {
+    etfCode: (get('etfCode') as string) || '',
+    etfName: '', // 去除中文名称显示
+    trendPosition: (get('trendPosition') as ChanlunResult['trendPosition']) || '中枢震荡',
+    trendConfidence: Number(get('trendConfidence')) || 0,
+    currentPrice: Number(get('currentPrice')) || 0,
+    changePercent: Number(get('changePercent')) || 0,
+    topFractal: Boolean(get('topFractal')),
+    bottomFractal: Boolean(get('bottomFractal')),
+    biCount: Number(get('biCount')) || 0,
+    biDirection: (get('biDirection') as ChanlunResult['biDirection']) || '向上',
+    centerRange: (get('centerRange') as [number, number]) || [0, 0],
+    segmentDirection: (get('segmentDirection') as ChanlunResult['segmentDirection']) || '向上',
+    divergenceType: (get('divergenceType') as ChanlunResult['divergenceType']) || '无背驰',
+    divergenceStrength: Number(get('divergenceStrength')) || 0,
+    macdAreaCurrent: Number(get('macdAreaCurrent')) || 0,
+    macdAreaPrevious: Number(get('macdAreaPrevious')) || 0,
+    buySellPoints: (get('buySellPoints') as ChanlunResult['buySellPoints']) || [],
+    dailyResonance: Number(get('dailyResonance')) || 0,
+    min30Resonance: Number(get('min30Resonance')) || 0,
+    min5Resonance: Number(get('min5Resonance')) || 0,
+    compositeResonance: Number(get('compositeResonance')) || 0,
+    recommendation: (get('recommendation') as string) || '',
+    macdHistory: (get('macdHistory') as ChanlunResult['macdHistory']) || [],
+    priceHistory: (get('priceHistory') as ChanlunResult['priceHistory']) || [],
+  };
+  return result;
+}
+
+function normalizeDingChang(raw: Record<string, unknown>): DingChangResult | null {
+  if (!raw) return null;
+  const get = (k: string) => (raw[k] !== undefined ? raw[k] : raw[k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]);
+
+  const dimsRaw = get('dimensions') as Record<string, unknown> || {};
+  const getDim = (k: string) => (dimsRaw[k] || dimsRaw[k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]) as Record<string, number> | undefined;
+
+  const getSubDim = (dimKey: string, subKey: string): number => {
+    const dim = getDim(dimKey);
+    if (!dim) return 0;
+    return Number(dim[subKey] !== undefined ? dim[subKey] : dim[subKey.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]) || 0;
+  };
+
+  const result: DingChangResult = {
+    etfCode: (get('etfCode') as string) || '',
+    etfName: '', // 去除中文名称显示
+    compositeScore: Number(get('compositeScore')) || 0,
+    rating: (get('rating') as DingChangResult['rating']) || '观察',
+    dimensions: {
+      dividendQuality: {
+        score: getSubDim('dividendQuality', 'score'),
+        yield: getSubDim('dividendQuality', 'yield'),
+        growth: getSubDim('dividendQuality', 'growth'),
+        stability: getSubDim('dividendQuality', 'stability'),
+        continuity: getSubDim('dividendQuality', 'continuity'),
+      },
+      valuationSafety: {
+        score: getSubDim('valuationSafety', 'score'),
+        pb: getSubDim('valuationSafety', 'pb'),
+        pbPercentile: getSubDim('valuationSafety', 'pbPercentile'),
+        pe: getSubDim('valuationSafety', 'pe'),
+        peg: getSubDim('valuationSafety', 'peg'),
+        spread: getSubDim('valuationSafety', 'spread'),
+      },
+      profitability: {
+        score: getSubDim('profitability', 'score'),
+        roe: getSubDim('profitability', 'roe'),
+        roic: getSubDim('profitability', 'roic'),
+        volatility: getSubDim('profitability', 'volatility'),
+        cashCoverage: getSubDim('profitability', 'cashCoverage'),
+      },
+      capitalFlow: {
+        score: getSubDim('capitalFlow', 'score'),
+        insuranceChange: getSubDim('capitalFlow', 'insuranceChange'),
+        etfFlow: getSubDim('capitalFlow', 'etfFlow'),
+        researchFreq: getSubDim('capitalFlow', 'researchFreq'),
+        northbound: getSubDim('capitalFlow', 'northbound'),
+      },
+      macroFit: {
+        score: getSubDim('macroFit', 'score'),
+        cycleMatch: getSubDim('macroFit', 'cycleMatch'),
+        rateEnv: getSubDim('macroFit', 'rateEnv'),
+        policy: getSubDim('macroFit', 'policy'),
+        globalVal: getSubDim('macroFit', 'globalVal'),
+      },
+    },
+    compositeSignal: (get('compositeSignal') as DingChangResult['compositeSignal']) || '维持',
+    signalFactors: (get('signalFactors') as DingChangResult['signalFactors']) || { trend: 0, insurance: 0, crowding: 0 },
+    risks: (get('risks') as string[]) || [],
+  };
+  return result;
+}
+
 export default function Overview({ initialCode }: OverviewProps) {
   const [searchCode, setSearchCode] = useState(initialCode || '');
-  const [selectedCode, setSelectedCode] = useState(initialCode || '510300');
+  const [selectedCode, setSelectedCode] = useState(initialCode || '');
   const [cacheWarning, setCacheWarning] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [dataSource, setDataSource] = useState<string>('');
+  const [analysisTime, setAnalysisTime] = useState<string>('');
+  const [etfSelectorCodes, setEtfSelectorCodes] = useState<string[]>([]);
+
+  // 从缓存获取已分析过的ETF代码列表
+  useEffect(() => {
+    const all = dataCache.getAll();
+    const codes = all.map(item => item.code);
+    setEtfSelectorCodes(codes);
+  }, []);
+
+  // 监听缓存变化
+  useEffect(() => {
+    const unsubscribe = dataCache.subscribe((pool) => {
+      const codes = pool.map(item => item.code);
+      setEtfSelectorCodes(codes);
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     if (initialCode) {
       setSearchCode(initialCode);
       setSelectedCode(initialCode);
-      checkCache(initialCode);
+      fetchData(initialCode);
     }
   }, [initialCode]);
 
-  // 优先从缓存读取，fallback到mock数据
-  const clData = useMemo(() => {
+  const fetchData = useCallback(async (code: string) => {
+    if (!code) return;
+    setIsLoading(true);
+    setError('');
+    setCacheWarning('');
+
+    try {
+      // 先检查缓存
+      const cached = dataCache.get(code);
+      let clRaw = cached?.data?.chanlun as Record<string, unknown> | undefined;
+      let dcRaw = cached?.data?.dingchang as Record<string, unknown> | undefined;
+
+      // 如果缓存中没有，调用API
+      if (!clRaw || !dcRaw) {
+        const result = await api.analyzeETF(code);
+        clRaw = result.chanlun;
+        dcRaw = result.dingchang;
+        setDataSource(result.data_source || '');
+        setAnalysisTime(result.analysis_time || '');
+
+        // 存入缓存
+        if (clRaw) dataCache.updateData(code, 'chanlun', clRaw);
+        if (dcRaw) dataCache.updateData(code, 'dingchang', dcRaw);
+
+        // 更新或创建缓存项
+        const existing = dataCache.get(code);
+        if (existing) {
+          dataCache.updateStatus(code, 'ready');
+        } else {
+          dataCache.add({
+            code,
+            name: code,
+            source: result.data_source || 'api',
+            updateTime: result.analysis_time || new Date().toLocaleString(),
+            status: 'ready',
+          });
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取数据失败');
+      if (!dataCache.has(code)) {
+        setCacheWarning('该标的暂无数据，请先在首页搜索分析');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // 从缓存获取归一化后的数据
+  const clData = useMemo<ChanlunResult | null>(() => {
     const cached = dataCache.get(selectedCode);
     if (cached?.data?.chanlun) {
-      return cached.data.chanlun as typeof chanlunMockData[keyof typeof chanlunMockData];
+      return normalizeChanlun(cached.data.chanlun as Record<string, unknown>);
     }
-    return chanlunMockData[selectedCode];
-  }, [selectedCode]);
+    return null;
+  }, [selectedCode, isLoading]);
 
-  const dcData = useMemo(() => {
+  const dcData = useMemo<DingChangResult | null>(() => {
     const cached = dataCache.get(selectedCode);
     if (cached?.data?.dingchang) {
-      return cached.data.dingchang as typeof dingchangMockData[keyof typeof dingchangMockData];
+      return normalizeDingChang(cached.data.dingchang as Record<string, unknown>);
     }
-    return dingchangMockData[selectedCode];
-  }, [selectedCode]);
+    return null;
+  }, [selectedCode, isLoading]);
 
-  const isMockFallback = useMemo(() => {
-    const cached = dataCache.get(selectedCode);
-    return !cached?.data?.chanlun || !cached?.data?.dingchang;
-  }, [selectedCode]);
+  const hasData = clData && dcData;
 
   const checkCache = (code: string) => {
     if (!dataCache.has(code)) {
@@ -84,18 +249,18 @@ export default function Overview({ initialCode }: OverviewProps) {
   const handleSearch = () => {
     const code = searchCode.trim();
     if (code) {
-      if (!dataCache.has(code)) {
-        setCacheWarning('该标的暂无缓存数据，请先在首页搜索');
-      } else {
-        setCacheWarning('');
-      }
-      if (chanlunMockData[code] && dingchangMockData[code]) {
-        setSelectedCode(code);
-      }
+      setSelectedCode(code);
+      setCacheWarning('');
+      fetchData(code);
     }
   };
 
-  const hasData = clData && dcData;
+  const handleSelectCode = (code: string) => {
+    setSelectedCode(code);
+    setSearchCode(code);
+    checkCache(code);
+    fetchData(code);
+  };
 
   // Radar data for overview
   const radarData = hasData
@@ -172,47 +337,62 @@ export default function Overview({ initialCode }: OverviewProps) {
       </div>
 
       {/* ETF Selector */}
-      <div className="flex flex-wrap gap-2">
-        {popularETFs.map((etf) => {
-          const isActive = selectedCode === etf.code;
-          return (
-            <button
-              key={etf.code}
-              onClick={() => {
-                setSelectedCode(etf.code);
-                checkCache(etf.code);
-              }}
-              className={cn(
-                'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-all',
-                isActive
-                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-400'
-                  : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-300'
-              )}
-            >
-              <span className="font-mono text-xs">{etf.code}</span>
-              <span className="text-xs">{etf.name}</span>
-            </button>
-          );
-        })}
-      </div>
+      {etfSelectorCodes.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {etfSelectorCodes.map((code) => {
+            const isActive = selectedCode === code;
+            return (
+              <button
+                key={code}
+                onClick={() => handleSelectCode(code)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-all',
+                  isActive
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-400'
+                    : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-300'
+                )}
+              >
+                <span className="font-mono text-xs">{code}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-12 text-center">
+          <Loader2 className="h-8 w-8 text-slate-600 mx-auto mb-3 animate-spin" />
+          <p className="text-sm text-slate-500">正在分析数据...</p>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && !isLoading && (
+        <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-2.5 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-rose-400 flex-shrink-0" />
+          <span className="text-xs text-rose-300">{error}</span>
+        </div>
+      )}
 
       {/* Cache Warning */}
-      {cacheWarning && (
+      {cacheWarning && !isLoading && (
         <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
           <span className="text-xs text-amber-300">{cacheWarning}</span>
         </div>
       )}
 
-      {/* Data Source Badge */}
-      {isMockFallback && (
+      {/* Data Source & Time */}
+      {dataSource && (
         <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-1.5 flex items-center gap-2 w-fit">
-          <span className="text-[11px] text-slate-400">当前展示: </span>
-          <span className="rounded bg-slate-700 px-2 py-0.5 text-[11px] text-slate-300">模拟数据</span>
+          <span className="text-[11px] text-slate-400">数据源: </span>
+          <span className="rounded bg-slate-700 px-2 py-0.5 text-[11px] text-slate-300">{dataSource}</span>
+          {analysisTime && <span className="text-[11px] text-slate-500 ml-2">{analysisTime}</span>}
         </div>
       )}
 
-      {hasData && overallRec && (
+      {hasData && overallRec && !isLoading && (
         <div className="space-y-5">
           {/* Executive Summary */}
           <div className={cn(
@@ -227,8 +407,9 @@ export default function Overview({ initialCode }: OverviewProps) {
               <ScoreRing score={dcData.compositeScore} size={100} strokeWidth={8} />
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
-                  <h2 className="text-lg font-bold text-slate-100">
-                    {clData.etfCode}.{clData.etfName}
+                  {/* 只显示代码 */}
+                  <h2 className="text-lg font-bold text-slate-100 font-mono">
+                    {clData.etfCode}
                   </h2>
                   <span className={cn(
                     'rounded-full px-3 py-1 text-xs font-bold',
@@ -446,7 +627,7 @@ export default function Overview({ initialCode }: OverviewProps) {
                     formatter={(value: number) => [`${value}分`, '']}
                   />
                   <Radar
-                    name={dcData.etfName}
+                    name={dcData.etfCode}
                     dataKey="score"
                     stroke="#10b981"
                     fill="#10b981"
@@ -460,11 +641,11 @@ export default function Overview({ initialCode }: OverviewProps) {
         </div>
       )}
 
-      {!hasData && (
+      {!hasData && !isLoading && (
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-12 text-center">
           <FileText className="h-8 w-8 text-slate-600 mx-auto mb-3" />
-          <p className="text-sm text-slate-500">请输入有效的ETF代码生成多框架综合报告</p>
-          <p className="text-xs text-slate-600 mt-1">支持的代码: 510300, 512890, 515290, 588000, 159915</p>
+          <p className="text-sm text-slate-500">请输入ETF代码并查询以生成多框架综合报告</p>
+          <p className="text-xs text-slate-600 mt-1">支持的代码示例: 510300, 512890, 515290, 588000, 159915</p>
         </div>
       )}
     </div>
