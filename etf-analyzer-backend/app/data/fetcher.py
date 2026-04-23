@@ -7,6 +7,7 @@ ETF数据获取模块
 
 import logging
 import os
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import akshare as ak
@@ -354,30 +355,118 @@ class DataFetchError(Exception):
     pass
 
 
+class UnifiedDataFetcher:
+    """统一数据获取器
+
+    封装主数据源 + 后备数据源逻辑。
+    当主数据源（默认tushare）获取失败时，自动回退到后备数据源（akshare）。
+    所有返回结果中均包含 data_source 和 fetch_time 字段。
+    """
+
+    def __init__(self):
+        self.primary = None  # 主数据源
+        self.fallback = None  # 后备数据源
+        self.primary_source_name = settings.DATA_SOURCE
+        self.fallback_source_name = "akshare" if settings.DATA_SOURCE == "tushare" else "tushare"
+        self._init_fetchers()
+
+    def _init_fetchers(self):
+        """初始化主/后备数据获取器"""
+        # 主数据源
+        if self.primary_source_name == "tushare":
+            try:
+                from app.data.tushare_fetcher import TushareETFDataFetcher
+                if settings.TUSHARE_TOKEN and settings.TUSHARE_TOKEN != "your_tushare_token_here":
+                    self.primary = TushareETFDataFetcher()
+                    logger.info("主数据源 Tushare 初始化成功")
+                else:
+                    logger.warning("Tushare token未配置，跳过主数据源初始化")
+            except Exception as e:
+                logger.warning(f"主数据源 Tushare 初始化失败: {e}")
+        else:
+            self.primary = ETFDataFetcher()
+            logger.info("主数据源 akshare 初始化成功")
+
+        # 后备数据源（总是akshare）
+        try:
+            self.fallback = ETFDataFetcher()
+            logger.info("后备数据源 akshare 初始化成功")
+        except Exception as e:
+            logger.warning(f"后备数据源 akshare 初始化失败: {e}")
+
+    def _call_with_fallback(self, method_name: str, *args, **kwargs):
+        """调用主数据源方法，失败时回退到后备数据源"""
+        # 先尝试主数据源
+        if self.primary is not None:
+            try:
+                result = getattr(self.primary, method_name)(*args, **kwargs)
+                # 标记数据源
+                result = self._tag_result(result, self.primary_source_name)
+                return result
+            except Exception as e:
+                logger.warning(f"主数据源 {self.primary_source_name} 调用 {method_name} 失败: {e}")
+
+        # 主数据源失败，尝试后备
+        if self.fallback is not None and settings.DATA_FALLBACK_ENABLED:
+            try:
+                result = getattr(self.fallback, method_name)(*args, **kwargs)
+                result = self._tag_result(result, self.fallback_source_name)
+                logger.info(f"已回退到后备数据源 {self.fallback_source_name} 执行 {method_name}")
+                return result
+            except Exception as e2:
+                logger.error(f"后备数据源 {self.fallback_source_name} 调用 {method_name} 也失败: {e2}")
+                raise DataFetchError(f"数据获取失败（主/后备均不可用）: {e2}")
+
+        raise DataFetchError(f"无可用数据源执行 {method_name}")
+
+    def _tag_result(self, result, source_name: str):
+        """为返回结果标记数据源和获取时间"""
+        fetch_time = datetime.now().isoformat()
+        if isinstance(result, pd.DataFrame):
+            # DataFrame添加属性
+            result.attrs['data_source'] = source_name
+            result.attrs['fetch_time'] = fetch_time
+        elif isinstance(result, dict):
+            result['data_source'] = source_name
+            result['fetch_time'] = fetch_time
+        return result
+
+    # ── 代理方法 ──
+    def get_etf_daily(self, code: str, start: str, end: str) -> pd.DataFrame:
+        return self._call_with_fallback('get_etf_daily', code, start, end)
+
+    def get_etf_minute(self, code: str, period: str = "30") -> pd.DataFrame:
+        return self._call_with_fallback('get_etf_minute', code, period)
+
+    def get_etf_list(self) -> pd.DataFrame:
+        return self._call_with_fallback('get_etf_list')
+
+    def get_etf_info(self, code: str) -> Dict:
+        return self._call_with_fallback('get_etf_info', code)
+
+    def get_etf_spot(self, code: str) -> Dict:
+        return self._call_with_fallback('get_etf_spot', code)
+
+    def get_etf_constituents(self, code: str) -> pd.DataFrame:
+        return self._call_with_fallback('get_etf_constituents', code)
+
+    def get_index_valuation(self, index_code: str) -> Dict:
+        return self._call_with_fallback('get_index_valuation', index_code)
+
+    def compute_macd(self, close_prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.DataFrame:
+        """MACD计算不依赖数据源，直接使用akshare实现"""
+        return self.fallback.compute_macd(close_prices, fast, slow, signal) if self.fallback else self.primary.compute_macd(close_prices, fast, slow, signal)
+
+    def get_multi_timeframe(self, code: str) -> Dict[str, pd.DataFrame]:
+        return self._call_with_fallback('get_multi_timeframe', code)
+
+
 # ────────────────────────────── 统一数据获取入口（工厂模式） ──────────────────────────────
 
 def get_data_fetcher():
-    """根据配置获取对应的数据获取器
-
-    通过 settings.DATA_SOURCE 配置项切换数据源：
-    - "akshare"  → 使用 akshare 免费数据源（默认）
-    - "tushare"  → 使用 tushare Pro 数据源
-
-    Returns
-    -------
-    ETFDataFetcher | TushareETFDataFetcher
-        对应配置的数据获取器实例
-    """
-    if settings.DATA_SOURCE == "tushare":
-        if not settings.TUSHARE_ENABLED:
-            logger.warning("Tushare已禁用，回退到akshare")
-            return ETFDataFetcher()
-        from app.data.tushare_fetcher import TushareETFDataFetcher
-
-        logger.info("使用Tushare数据源")
-        return TushareETFDataFetcher()
-    return ETFDataFetcher()  # 默认 akshare
+    """获取统一的数据获取器（支持主/后备自动切换）"""
+    return UnifiedDataFetcher()
 
 
-# 全局数据获取器实例（默认akshare，后续通过工厂方法按需创建）
-fetcher = ETFDataFetcher()
+# 全局统一数据获取器实例
+fetcher = UnifiedDataFetcher()
