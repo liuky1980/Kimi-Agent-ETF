@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { popularETFs, recentAnalyses } from '@/data/mockData';
+import { api } from '@/services/api';
 import { dataCache, type CacheItem } from '@/services/dataCache';
 import type { Tab } from '@/components/Navbar';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,37 @@ interface HomeProps {
 export default function Home({ onNavigate }: HomeProps) {
   const [searchCode, setSearchCode] = useState('');
   const [searchPool, setSearchPool] = useState<CacheItem[]>([]);
+  const [popularETFs, setPopularETFs] = useState<Array<{ code: string; name: string; price?: number; change_pct?: number }>>([]);
+  const [isLoadingPopular, setIsLoadingPopular] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // 组件挂载时获取ETF列表
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingPopular(true);
+    api.getETFList(20)
+      .then((resp) => {
+        if (cancelled) return;
+        if (resp.etfs && resp.etfs.length > 0) {
+          setPopularETFs(resp.etfs.map((e) => ({
+            code: e.code,
+            name: e.name,
+            price: e.price,
+            change_pct: e.change_pct,
+          })));
+        }
+      })
+      .catch(() => {
+        // API降级：静默失败，热门ETF区域显示为空
+        if (!cancelled) {
+          setPopularETFs([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingPopular(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = dataCache.subscribe((pool) => {
@@ -36,20 +67,59 @@ export default function Home({ onNavigate }: HomeProps) {
     dataCache.add(item);
   }, []);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     const code = searchCode.trim();
-    if (code) {
-      const etf = popularETFs.find(e => e.code === code);
-      const name = etf?.name || code;
+    if (!code) return;
 
-      addToPool({
-        code,
-        name,
-        source: 'akshare',
-        updateTime: new Date().toLocaleString()
-      });
+    setIsSearching(true);
+    try {
+      // 调用后端API获取真实分析数据
+      const result = await api.analyzeETF(code);
+
+      // 将数据存入缓存
+      if (result.chanlun) {
+        dataCache.updateData(code, 'chanlun', result.chanlun);
+      }
+      if (result.dingchang) {
+        dataCache.updateData(code, 'dingchang', result.dingchang);
+      }
+
+      // 更新缓存池中的元信息
+      const existing = dataCache.get(code);
+      if (existing) {
+        dataCache.updateStatus(code, 'ready');
+      } else {
+        addToPool({
+          code,
+          name: code, // 只显示代码，不显示中文名称
+          source: result.data_source || 'api',
+          updateTime: result.analysis_time || new Date().toLocaleString(),
+          status: 'ready',
+          data: {
+            chanlun: result.chanlun,
+            dingchang: result.dingchang,
+          },
+        });
+      }
 
       onNavigate('overview', code);
+    } catch (err) {
+      // API降级：即使失败也添加到标的池，并导航到概览页
+      // 各分析页面会从缓存读取，若无数据则显示空状态
+      const existing = dataCache.get(code);
+      if (!existing) {
+        addToPool({
+          code,
+          name: code, // 只显示代码
+          source: 'api',
+          updateTime: new Date().toLocaleString(),
+          status: 'error',
+          errorMessage: err instanceof Error ? err.message : '分析失败',
+        });
+      }
+      onNavigate('overview', code);
+    } finally {
+      setIsSearching(false);
     }
   };
 
@@ -90,10 +160,11 @@ export default function Home({ onNavigate }: HomeProps) {
             </div>
             <button
               onClick={handleSearch}
-              className="flex items-center justify-center gap-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-5 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-500/25 transition-colors"
+              disabled={isSearching}
+              className="flex items-center justify-center gap-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-5 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
             >
               <TrendingUp className="h-4 w-4" />
-              开始分析
+              {isSearching ? '分析中...' : '开始分析'}
             </button>
           </div>
         </div>
@@ -124,9 +195,24 @@ export default function Home({ onNavigate }: HomeProps) {
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-mono text-xs font-bold text-amber-400">{item.code}</span>
-                    <span className="text-sm text-slate-200">{item.name}</span>
+                    <span className="text-xs text-slate-400">{item.name !== item.code ? item.name : ''}</span>
                   </div>
                   <div className="flex items-center gap-3">
+                    {item.status === 'loading' && (
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-400">
+                        分析中
+                      </span>
+                    )}
+                    {item.status === 'error' && (
+                      <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[11px] text-rose-400">
+                        错误
+                      </span>
+                    )}
+                    {item.status === 'ready' && (
+                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-400">
+                        就绪
+                      </span>
+                    )}
                     <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[11px] text-slate-400">
                       {item.source}
                     </span>
@@ -146,28 +232,46 @@ export default function Home({ onNavigate }: HomeProps) {
           <LineChart className="h-5 w-5 text-emerald-400" />
           热门ETF快速入口
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {popularETFs.map((etf) => (
-            <button
-              key={etf.code}
-              onClick={() => onNavigate('overview', etf.code)}
-              className="group flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-4 hover:border-emerald-500/30 hover:bg-slate-800/60 transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 group-hover:bg-emerald-500/15 transition-colors">
-                  <span className="text-xs font-mono font-bold text-slate-300 group-hover:text-emerald-400">
-                    {etf.code.slice(0, 3)}
-                  </span>
+        {isLoadingPopular ? (
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
+            <div className="text-sm text-slate-500">加载中...</div>
+          </div>
+        ) : popularETFs.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {popularETFs.map((etf) => (
+              <button
+                key={etf.code}
+                onClick={() => onNavigate('overview', etf.code)}
+                className="group flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-4 hover:border-emerald-500/30 hover:bg-slate-800/60 transition-all"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 group-hover:bg-emerald-500/15 transition-colors">
+                    <span className="text-xs font-mono font-bold text-slate-300 group-hover:text-emerald-400">
+                      {etf.code.slice(0, 3)}
+                    </span>
+                  </div>
+                  <div className="text-left">
+                    {/* 只显示代码，不显示中文名称 */}
+                    <div className="text-sm font-medium text-slate-200 font-mono">{etf.code}</div>
+                    {etf.price !== undefined && (
+                      <div className="text-xs text-slate-500">
+                        {etf.price.toFixed(3)}
+                        <span className={cn('ml-1', (etf.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                          {(etf.change_pct ?? 0) >= 0 ? '+' : ''}{etf.change_pct?.toFixed(2) ?? '--'}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-slate-200">{etf.name}</div>
-                  <div className="text-xs text-slate-500 font-mono">{etf.code}</div>
-                </div>
-              </div>
-              <ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-emerald-400 transition-colors" />
-            </button>
-          ))}
-        </div>
+                <ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-emerald-400 transition-colors" />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
+            <p className="text-sm text-slate-500">暂无热门ETF数据，请在上方搜索框输入ETF代码进行分析</p>
+          </div>
+        )}
       </section>
 
       {/* Framework Cards */}
@@ -231,7 +335,7 @@ export default function Home({ onNavigate }: HomeProps) {
         </div>
       </section>
 
-      {/* Recent Analyses */}
+      {/* Recent Analyses - 从标的池动态生成 */}
       <section>
         <h2 className="text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2">
           <Clock className="h-5 w-5 text-amber-400" />
@@ -242,45 +346,53 @@ export default function Home({ onNavigate }: HomeProps) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-800">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">ETF名称</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">代码</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">分析类型</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">日期</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">ETF代码</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">状态</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">数据源</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">时间</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {recentAnalyses.map((item, idx) => (
-                  <tr
-                    key={idx}
-                    className="border-b border-slate-800/50 last:border-0 hover:bg-slate-800/40 transition-colors"
-                  >
-                    <td className="px-4 py-3 text-slate-200">{item.name}</td>
-                    <td className="px-4 py-3 font-mono text-slate-400">{item.code}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          'inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium',
-                          item.type === '李彪分析框架' && 'bg-emerald-500/10 text-emerald-400',
-                          item.type === '丁昶分析框架' && 'bg-sky-500/10 text-sky-400',
-                          item.type === '多框架综合' && 'bg-amber-500/10 text-amber-400'
-                        )}
-                      >
-                        {item.type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">{item.date}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => onNavigate('overview', item.code)}
-                        className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1 ml-auto"
-                      >
-                        <FileText className="h-3 w-3" />
-                        查看报告
-                      </button>
+                {searchPool.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                      暂无分析记录
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  [...searchPool].reverse().slice(0, 10).map((item, idx) => (
+                    <tr
+                      key={idx}
+                      className="border-b border-slate-800/50 last:border-0 hover:bg-slate-800/40 transition-colors"
+                    >
+                      <td className="px-4 py-3 font-mono text-slate-200">{item.code}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={cn(
+                            'inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium',
+                            item.status === 'ready' && 'bg-emerald-500/10 text-emerald-400',
+                            item.status === 'loading' && 'bg-amber-500/10 text-amber-400',
+                            item.status === 'error' && 'bg-rose-500/10 text-rose-400'
+                          )}
+                        >
+                          {item.status === 'ready' ? '已完成' : item.status === 'loading' ? '分析中' : '失败'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-400">{item.source}</td>
+                      <td className="px-4 py-3 text-slate-500">{item.updateTime}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => onNavigate('overview', item.code)}
+                          className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1 ml-auto"
+                        >
+                          <FileText className="h-3 w-3" />
+                          查看报告
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
