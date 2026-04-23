@@ -98,7 +98,11 @@ async def analyze_etf(request: ETFAnalysisRequest):
             chanlun_dict = chanlun_result.model_dump()
         except Exception as e:
             logger.error(f"李彪分析框架分析失败: {e}")
-            chanlun_dict = {"error": str(e), "etf_code": etf_code}
+            chanlun_dict = {
+                "error": str(e),
+                "etf_code": etf_code,
+                "warning": f"李彪分析框架分析失败: {str(e)}。该ETF可能数据不足或不符合分析条件。"
+            }
 
         # 4. 运行丁昶分析框架分析
         try:
@@ -110,7 +114,11 @@ async def analyze_etf(request: ETFAnalysisRequest):
             dingchang_dict = dingchang_result.model_dump()
         except Exception as e:
             logger.error(f"丁昶分析框架分析失败: {e}")
-            dingchang_dict = {"error": str(e), "etf_code": etf_code}
+            dingchang_dict = {
+                "error": str(e),
+                "etf_code": etf_code,
+                "warning": f"丁昶分析框架分析失败: {str(e)}。该ETF可能数据不足或不符合分析条件。"
+            }
 
         # 5. 生成综合分析摘要
         summary = _generate_dual_summary(chanlun_dict, dingchang_dict)
@@ -119,6 +127,13 @@ async def analyze_etf(request: ETFAnalysisRequest):
         confidence = _calc_dual_confidence(chanlun_dict, dingchang_dict)
 
         processing_time = int((time.time() - start_time) * 1000)
+
+        # 检测实际使用的数据源
+        actual_source = settings.DATA_SOURCE
+        if hasattr(df_daily, 'attrs') and df_daily.attrs.get('data_source'):
+            actual_source = df_daily.attrs['data_source']
+        elif hasattr(data_fetcher, 'primary_source_name'):
+            actual_source = data_fetcher.primary_source_name
 
         return ETFAnalysisResponse(
             success=True,
@@ -130,7 +145,7 @@ async def analyze_etf(request: ETFAnalysisRequest):
             dual_signal=dual_signal,
             confidence=confidence,
             processing_time_ms=processing_time,
-            data_source=settings.DATA_SOURCE,
+            data_source=actual_source,
             analysis_time=datetime.now()
         )
 
@@ -188,7 +203,17 @@ async def get_etf_list(
             except Exception:
                 continue
 
-        return ETFListResponse(count=len(etfs), etfs=etfs)
+        # 检测实际使用的数据源
+        actual_source = settings.DATA_SOURCE
+        if hasattr(data_fetcher, 'primary_source_name'):
+            actual_source = data_fetcher.primary_source_name
+
+        return ETFListResponse(
+            count=len(etfs),
+            etfs=etfs,
+            data_source=actual_source,
+            update_time=datetime.now()
+        )
 
     except Exception as e:
         logger.error(f"获取ETF列表失败: {e}")
