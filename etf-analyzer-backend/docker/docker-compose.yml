@@ -1,0 +1,33 @@
+# ──────────────────────────────────────────────────────────────
+# ETF双框架智能分析系统 — Docker Compose 配置
+# ──────────────────────────────────────────────────────────────
+version: '3.8'
+
+services:
+  etf-analyzer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: etf-analyzer:latest
+    container_name: etf-analyzer
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - PORT=8000
+    volumes:
+      # 数据缓存持久化
+      - etf-cache:/app/.cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  etf-cache:
+    driver: local
