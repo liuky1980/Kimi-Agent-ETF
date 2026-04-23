@@ -24,7 +24,8 @@ class Settings(BaseSettings):
 
     # 数据源配置
     # 可选值: "akshare" | "tushare" — 通过环境变量 DATA_SOURCE 切换
-    DATA_SOURCE: str = os.getenv("DATA_SOURCE", "akshare")
+    DATA_SOURCE: str = os.getenv("DATA_SOURCE", "tushare")
+    DATA_FALLBACK_ENABLED: bool = True  # 主数据源失败时自动回退到后备数据源
     DATA_CACHE_DIR: str = os.path.join(os.path.dirname(__file__), "..", ".cache")
     DATA_CACHE_TTL: int = 3600  # 数据缓存时间(秒)
 
