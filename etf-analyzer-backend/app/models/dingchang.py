@@ -1,7 +1,7 @@
 """
-丁昶投资框架 Pydantic 模型
+丁昶分析框架 Pydantic 模型
 =========================
-定义丁昶五维评分体系的请求/响应数据结构，
+定义丁昶分析框架五维评分体系的请求/响应数据结构，
 包括股息质量、估值安全、盈利质地、资金驱动、宏观适配五个维度。
 """
 
@@ -92,7 +92,7 @@ class DingChangDimensions(BaseModel):
 
 
 class DingChangResult(BaseModel):
-    """丁昶五维评分完整结果"""
+    """丁昶分析框架五维评分完整结果"""
     # 基础信息
     etf_code: str = Field(..., description="ETF代码")
     etf_name: str = Field("", description="ETF名称")
@@ -157,18 +157,18 @@ class ETFAnalysisRequest(BaseModel):
 
 
 class ETFAnalysisResponse(BaseModel):
-    """ETF双框架分析响应"""
+    """ETF多框架分析响应"""
     success: bool = Field(True, description="分析是否成功")
     message: str = Field("", description="状态消息")
 
-    # 双框架结果
-    chanlun: Optional[Dict] = Field(None, description="缠论分析结果")
-    dingchang: Optional[Dict] = Field(None, description="丁昶五维评分结果")
+    # 多框架结果
+    chanlun: Optional[Dict] = Field(None, description="李彪分析框架结果")
+    dingchang: Optional[Dict] = Field(None, description="丁昶分析框架结果")
 
     # 综合分析
-    summary: str = Field("", description="双框架综合摘要")
+    summary: str = Field("", description="多框架综合摘要")
     action: str = Field("", description="综合行动建议: 强烈关注/关注/观望/回避")
-    dual_signal: str = Field("", description="双框架信号对齐: aligned/mixed/conflicting")
+    dual_signal: str = Field("", description="多框架信号对齐: aligned/mixed/conflicting")
     confidence: float = Field(0.0, ge=0.0, le=1.0, description="综合置信度")
 
     # 元数据
@@ -196,4 +196,4 @@ class ETFListResponse(BaseModel):
     """ETF列表响应"""
     count: int = Field(0, description="总数")
     etfs: List[ETFSimpleInfo] = Field(default_factory=list, description="ETF列表")
-    update_time: datetime = Field(default_factory=datetime.now, description="更新时间")
+    update_time: datetime = Field(default_factory=datetime.now, description="更

@@ -1,14 +1,14 @@
 """
-ETF双框架智能分析系统 — FastAPI 入口
+ETF多框架分析系统 — FastAPI 入口
 =====================================
-基于缠论技术分析与丁昶投资框架的ETF智能分析工具。
+基于李彪分析框架与丁昶分析框架的ETF智能分析工具。
 
 技术栈:
 - FastAPI: 高性能异步Web框架
 - akshare: 免费A股数据源
 - pandas/numpy: 数据分析
-- 缠论引擎: 分型/笔/线段/中枢/背驰/买卖点/共振
-- 丁昶引擎: 五维评分体系
+- 李彪分析框架引擎: 分型/笔/线段/中枢/背驰/买卖点/共振
+- 丁昶分析框架引擎: 五维评分体系
 """
 
 import logging
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.APP_NAME,
-    description="基于缠论技术分析与丁昶投资框架的ETF智能分析工具",
+    description="基于李彪分析框架与丁昶分析框架的ETF智能分析工具",
     version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",

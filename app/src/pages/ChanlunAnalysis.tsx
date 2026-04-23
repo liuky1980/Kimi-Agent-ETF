@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { chanlunMockData, popularETFs } from '@/data/mockData';
+import { dataCache } from '@/services/dataCache';
 import ChanlunPanel from '@/components/ChanlunPanel';
 import {
   Search,
@@ -28,15 +29,49 @@ interface ChanlunAnalysisProps {
 export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
   const [searchCode, setSearchCode] = useState(initialCode || '');
   const [selectedCode, setSelectedCode] = useState(initialCode || '510300');
+  const [cacheWarning, setCacheWarning] = useState<string>('');
+
+  useEffect(() => {
+    if (initialCode) {
+      setSearchCode(initialCode);
+      setSelectedCode(initialCode);
+      checkCache(initialCode);
+    }
+  }, [initialCode]);
 
   const data = useMemo(() => {
+    // 优先从缓存读取，fallback到mock数据
+    const cached = dataCache.get(selectedCode);
+    if (cached?.data?.chanlun) {
+      return cached.data.chanlun as typeof chanlunMockData[keyof typeof chanlunMockData];
+    }
     return chanlunMockData[selectedCode] || chanlunMockData['510300'];
   }, [selectedCode]);
 
+  const isMockFallback = useMemo(() => {
+    const cached = dataCache.get(selectedCode);
+    return !cached?.data?.chanlun;
+  }, [selectedCode]);
+
+  const checkCache = (code: string) => {
+    if (!dataCache.has(code)) {
+      setCacheWarning('该标的暂无缓存数据，请先在首页搜索');
+    } else {
+      setCacheWarning('');
+    }
+  };
+
   const handleSearch = () => {
     const code = searchCode.trim();
-    if (code && chanlunMockData[code]) {
-      setSelectedCode(code);
+    if (code) {
+      if (!dataCache.has(code)) {
+        setCacheWarning('该标的暂无缓存数据，请先在首页搜索');
+      } else {
+        setCacheWarning('');
+      }
+      if (chanlunMockData[code]) {
+        setSelectedCode(code);
+      }
     }
   };
 
@@ -57,8 +92,8 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
             <LineChart className="h-5 w-5 text-emerald-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-100">缠论技术分析</h1>
-            <p className="text-xs text-slate-500">Chanlun Technical Analysis - 趋势 · 结构 · 买卖点</p>
+            <h1 className="text-xl font-bold text-slate-100">李彪分析框架</h1>
+            <p className="text-xs text-slate-500">Libiao Analysis Framework - 趋势 · 结构 · 买卖点</p>
           </div>
         </div>
 
@@ -83,6 +118,22 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
         </div>
       </div>
 
+      {/* Cache Warning */}
+      {cacheWarning && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+          <span className="text-xs text-amber-300">{cacheWarning}</span>
+        </div>
+      )}
+
+      {/* Data Source Badge */}
+      {isMockFallback && (
+        <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-1.5 flex items-center gap-2 w-fit">
+          <span className="text-[11px] text-slate-400">当前展示: </span>
+          <span className="rounded bg-slate-700 px-2 py-0.5 text-[11px] text-slate-300">模拟数据</span>
+        </div>
+      )}
+
       {/* ETF Selector */}
       <div className="flex flex-wrap gap-2">
         {popularETFs.map((etf) => {
@@ -93,7 +144,10 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
           return (
             <button
               key={etf.code}
-              onClick={() => setSelectedCode(etf.code)}
+              onClick={() => {
+                setSelectedCode(etf.code);
+                checkCache(etf.code);
+              }}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-all',
                 isActive
@@ -101,8 +155,7 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
                   : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-300'
               )}
             >
-              <span className="font-mono text-xs">{etf.code}</span>
-              <span className="text-xs">{etf.name}</span>
+              <span className="font-mono text-xs">{etf.code}.{etf.name}</span>
               {trendUp && <TrendingUp className="h-3 w-3 text-emerald-400" />}
               {trendDown && <TrendingDown className="h-3 w-3 text-rose-400" />}
               {!trendUp && !trendDown && clData?.trendPosition === '中枢震荡' && (
@@ -123,7 +176,7 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="text-sm font-semibold text-slate-200">
-                  {data.etfName} ({data.etfCode})
+                  {data.etfCode}.{data.etfName}
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5">MACD指标与价格走势</div>
               </div>

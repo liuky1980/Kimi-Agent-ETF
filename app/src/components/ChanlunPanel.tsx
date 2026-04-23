@@ -304,7 +304,7 @@ export default function ChanlunPanel({ data }: ChanlunPanelProps) {
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
         <div className="flex items-center gap-2 mb-2">
           <CheckCircle2 className="h-4 w-4 text-sky-400" />
-          <h3 className="text-sm font-semibold text-slate-200">缠论研判结论</h3>
+          <h3 className="text-sm font-semibold text-slate-200">李彪分析框架结论</h3>
         </div>
         <p className="text-sm text-slate-300 leading-relaxed">{data.recommendation}</p>
       </div>

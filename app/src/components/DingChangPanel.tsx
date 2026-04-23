@@ -114,7 +114,7 @@ export default function DingChangPanel({ data }: DingChangPanelProps) {
       {/* Score and Radar */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col items-center justify-center">
-          <div className="text-sm text-slate-400 mb-3">丁昶综合评分</div>
+          <div className="text-sm text-slate-400 mb-3">丁昶分析框架综合评分</div>
           <ScoreRing score={data.compositeScore} />
           <div className="mt-3 flex items-center gap-2">
             <Award className="h-4 w-4 text-sky-400" />
@@ -161,7 +161,7 @@ export default function DingChangPanel({ data }: DingChangPanelProps) {
                   formatter={(value: number) => [`${value}分`, '得分']}
                 />
                 <Radar
-                  name={data.etfName}
+                  name={`${data.etfCode}.${data.etfName}`}
                   dataKey="score"
                   stroke="#10b981"
                   fill="#10b981"

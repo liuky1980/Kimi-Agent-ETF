@@ -17,6 +17,7 @@ numpy>=1.25.0
 
 # 金融数据源
 akshare>=1.11.0
+tushare>=1.3.0
 
 # HTTP 客户端 (akshare 依赖)
 requests>=2.31.0

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     """应用配置类，支持从环境变量读取"""
 
     # 应用基础配置
-    APP_NAME: str = "ETF双框架智能分析系统"
+    APP_NAME: str = "ETF多框架分析系统"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
     ENV: str = os.getenv("ENV", "development")
@@ -23,22 +23,30 @@ class Settings(BaseSettings):
     PORT: int = int(os.getenv("PORT", "8000"))
 
     # 数据源配置
-    DATA_SOURCE: str = "akshare"  # 默认使用akshare免费数据源
+    # 可选值: "akshare" | "tushare" — 通过环境变量 DATA_SOURCE 切换
+    DATA_SOURCE: str = os.getenv("DATA_SOURCE", "akshare")
     DATA_CACHE_DIR: str = os.path.join(os.path.dirname(__file__), "..", ".cache")
     DATA_CACHE_TTL: int = 3600  # 数据缓存时间(秒)
 
-    # 缠论分析配置
+    # Tushare数据源配置
+    TUSHARE_TOKEN: str = os.getenv(
+        "TUSHARE_TOKEN",
+        "61afcb2ebd9cad58a493f4802bf88c8936e91dcb2dd82495075a88bc",
+    )
+    TUSHARE_ENABLED: bool = os.getenv("TUSHARE_ENABLED", "true").lower() == "true"
+
+    # 李彪分析框架配置
     CHANLUN_MIN_KLINES: int = 5  # 笔划分的最小K线间隔
     CHANLUN_CENTER_OVERLAP: int = 3  # 中枢最少重叠笔数
     CHANLUN_DIVERGENCE_METHOD: str = "macd_area"  # 背驰检测方法: macd_area | macd_slope
     CHANLUN_RESonance_THRESHOlD: float = 70.0  # 共振信号阈值
 
-    # 丁昶框架配置
+    # 丁昶分析框架配置
     DINGCHANG_COMPOSITE_THRESHOLD_BUY: float = 80.0  # 综合评分买入阈值
     DINGCHANG_COMPOSITE_THRESHOLD_HOLD: float = 60.0  # 综合评分持有阈值
     DINGCHANG_COMPOSITE_THRESHOLD_WATCH: float = 40.0  # 综合评分观察阈值
 
-    # 权重配置 (丁昶五维评分权重)
+    # 权重配置 (丁昶分析框架五维评分权重)
     WEIGHT_DIVIDEND: float = 0.30  # 股息质量权重
     WEIGHT_VALUATION: float = 0.25  # 估值安全权重
     WEIGHT_PROFITABILITY: float = 0.20  # 盈利质地权重

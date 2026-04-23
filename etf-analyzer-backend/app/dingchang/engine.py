@@ -1,7 +1,7 @@
 """
-丁昶五维评分引擎
+丁昶分析框架五维评分引擎
 =================
-丁昶投资框架的核心引擎，整合五个维度的评分：
+丁昶分析框架的核心引擎，整合五个维度的评分：
 1. 股息质量 (30%) - 分红质量或资本回报效率
 2. 估值安全 (25%) - PE/PB历史百分位、PEG
 3. 盈利质地 (20%) - ROE、收益稳定性、增长趋势
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 class DingChangEngine:
-    """丁昶五维评分引擎
+    """丁昶分析框架五维评分引擎
 
     对ETF从五个维度进行全面评估，生成综合评分和投资建议。
     """
@@ -89,7 +89,7 @@ class DingChangEngine:
         DingChangResult
             完整的五维评分结果
         """
-        logger.info(f"开始对 {etf_code} 执行丁昶五维评分")
+        logger.info(f"开始对 {etf_code} 执行丁昶分析框架五维评分")
 
         # 执行五个维度的独立评分
         dividend_score = self.dividend.score(etf_code, df_daily)
@@ -157,7 +157,7 @@ class DingChangEngine:
         )
 
         logger.info(
-            f"丁昶五维评分完成: {etf_code} - 综合 {composite:.1f}分, "
+            f"丁昶分析框架五维评分完成: {etf_code} - 综合 {composite:.1f}分, "
             f"评级 {rating}, 信号 {signal}"
         )
         return result
@@ -309,7 +309,7 @@ class DingChangEngine:
         composite: float
     ) -> str:
         """生成投资建议"""
-        parts = [f"丁昶框架综合评级：{rating} ({composite:.1f}分)"]
+        parts = [f"丁昶分析框架综合评级：{rating} ({composite:.1f}分)"]
 
         # 找出最强和最弱维度
         scores = {

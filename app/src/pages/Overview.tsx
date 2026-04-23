@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { chanlunMockData, dingchangMockData, popularETFs } from '@/data/mockData';
+import { dataCache } from '@/services/dataCache';
 import { cn } from '@/lib/utils';
 import {
   FileText,
@@ -33,27 +34,70 @@ import {
 } from 'recharts';
 import ScoreRing from '@/components/ScoreRing';
 
-interface ReportProps {
+interface OverviewProps {
   initialCode?: string;
 }
 
-export default function Report({ initialCode }: ReportProps) {
+export default function Overview({ initialCode }: OverviewProps) {
   const [searchCode, setSearchCode] = useState(initialCode || '');
   const [selectedCode, setSelectedCode] = useState(initialCode || '510300');
+  const [cacheWarning, setCacheWarning] = useState<string>('');
 
-  const clData = useMemo(() => chanlunMockData[selectedCode], [selectedCode]);
-  const dcData = useMemo(() => dingchangMockData[selectedCode], [selectedCode]);
+  useEffect(() => {
+    if (initialCode) {
+      setSearchCode(initialCode);
+      setSelectedCode(initialCode);
+      checkCache(initialCode);
+    }
+  }, [initialCode]);
+
+  // 优先从缓存读取，fallback到mock数据
+  const clData = useMemo(() => {
+    const cached = dataCache.get(selectedCode);
+    if (cached?.data?.chanlun) {
+      return cached.data.chanlun as typeof chanlunMockData[keyof typeof chanlunMockData];
+    }
+    return chanlunMockData[selectedCode];
+  }, [selectedCode]);
+
+  const dcData = useMemo(() => {
+    const cached = dataCache.get(selectedCode);
+    if (cached?.data?.dingchang) {
+      return cached.data.dingchang as typeof dingchangMockData[keyof typeof dingchangMockData];
+    }
+    return dingchangMockData[selectedCode];
+  }, [selectedCode]);
+
+  const isMockFallback = useMemo(() => {
+    const cached = dataCache.get(selectedCode);
+    return !cached?.data?.chanlun || !cached?.data?.dingchang;
+  }, [selectedCode]);
+
+  const checkCache = (code: string) => {
+    if (!dataCache.has(code)) {
+      setCacheWarning('该标的暂无缓存数据，请先在首页搜索');
+    } else {
+      setCacheWarning('');
+    }
+  };
 
   const handleSearch = () => {
     const code = searchCode.trim();
-    if (code && chanlunMockData[code] && dingchangMockData[code]) {
-      setSelectedCode(code);
+    if (code) {
+      if (!dataCache.has(code)) {
+        setCacheWarning('该标的暂无缓存数据，请先在首页搜索');
+      } else {
+        setCacheWarning('');
+      }
+      if (chanlunMockData[code] && dingchangMockData[code]) {
+        setSelectedCode(code);
+      }
     }
   };
 
   const hasData = clData && dcData;
 
-  // Radar data for report
+  // Radar data for overview
   const radarData = hasData
     ? [
         { subject: '股息质量', score: dcData.dimensions.dividendQuality.score },
@@ -72,9 +116,9 @@ export default function Report({ initialCode }: ReportProps) {
     const dcGood = dcData.compositeScore >= 70;
     const dcBad = dcData.compositeScore < 50;
 
-    if (clBullish && dcGood) return { text: '积极关注', color: 'emerald', detail: '缠论趋势向好 + 丁昶评分优秀，建议重点关注' };
-    if (clBearish && dcBad) return { text: '谨慎回避', color: 'rose', detail: '缠论趋势向下 + 丁昶评分偏低，建议暂时回避' };
-    if (clBullish && !dcGood) return { text: '结构机会', color: 'sky', detail: '缠论出现结构机会，但基本面评分一般，控制仓位参与' };
+    if (clBullish && dcGood) return { text: '积极关注', color: 'emerald', detail: '李彪分析框架趋势向好 + 丁昶评分优秀，建议重点关注' };
+    if (clBearish && dcBad) return { text: '谨慎回避', color: 'rose', detail: '李彪分析框架趋势向下 + 丁昶评分偏低，建议暂时回避' };
+    if (clBullish && !dcGood) return { text: '结构机会', color: 'sky', detail: '李彪分析框架出现结构机会，但基本面评分一般，控制仓位参与' };
     if (clBearish && dcGood) return { text: '价值关注', color: 'amber', detail: '基本面优秀但趋势偏弱，可纳入观察列表等待企稳' };
     return { text: '中性观察', color: 'slate', detail: '多空因素交织，建议继续观察等待明确信号' };
   };
@@ -101,8 +145,8 @@ export default function Report({ initialCode }: ReportProps) {
             <FileText className="h-5 w-5 text-amber-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-100">综合分析报告</h1>
-            <p className="text-xs text-slate-500">双框架融合研判 · 缠论 + 丁昶</p>
+            <h1 className="text-xl font-bold text-slate-100">多框架综合</h1>
+            <p className="text-xs text-slate-500">多框架融合研判 · 李彪 + 丁昶</p>
           </div>
         </div>
 
@@ -134,7 +178,10 @@ export default function Report({ initialCode }: ReportProps) {
           return (
             <button
               key={etf.code}
-              onClick={() => setSelectedCode(etf.code)}
+              onClick={() => {
+                setSelectedCode(etf.code);
+                checkCache(etf.code);
+              }}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-all',
                 isActive
@@ -148,6 +195,22 @@ export default function Report({ initialCode }: ReportProps) {
           );
         })}
       </div>
+
+      {/* Cache Warning */}
+      {cacheWarning && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+          <span className="text-xs text-amber-300">{cacheWarning}</span>
+        </div>
+      )}
+
+      {/* Data Source Badge */}
+      {isMockFallback && (
+        <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-1.5 flex items-center gap-2 w-fit">
+          <span className="text-[11px] text-slate-400">当前展示: </span>
+          <span className="rounded bg-slate-700 px-2 py-0.5 text-[11px] text-slate-300">模拟数据</span>
+        </div>
+      )}
 
       {hasData && overallRec && (
         <div className="space-y-5">
@@ -165,7 +228,7 @@ export default function Report({ initialCode }: ReportProps) {
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
                   <h2 className="text-lg font-bold text-slate-100">
-                    {clData.etfName} ({clData.etfCode})
+                    {clData.etfCode}.{clData.etfName}
                   </h2>
                   <span className={cn(
                     'rounded-full px-3 py-1 text-xs font-bold',
@@ -182,7 +245,7 @@ export default function Report({ initialCode }: ReportProps) {
                 <div className="flex flex-wrap gap-4 text-xs">
                   <div className="flex items-center gap-1.5">
                     <LineChart className="h-3.5 w-3.5 text-emerald-400" />
-                    <span className="text-slate-400">缠论:</span>
+                    <span className="text-slate-400">李彪:</span>
                     <span className={cn(
                       'font-medium',
                       clData.trendPosition === '上升趋势' ? 'text-emerald-400' :
@@ -212,7 +275,7 @@ export default function Report({ initialCode }: ReportProps) {
             <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
               <div className="flex items-center gap-2 mb-4">
                 <LineChart className="h-4 w-4 text-emerald-400" />
-                <h3 className="text-sm font-semibold text-slate-200">缠论技术研判</h3>
+                <h3 className="text-sm font-semibold text-slate-200">李彪分析框架研判</h3>
               </div>
 
               <div className="space-y-3">
@@ -249,7 +312,7 @@ export default function Report({ initialCode }: ReportProps) {
               </div>
 
               <div className="mt-4 rounded-lg bg-slate-800/60 p-3">
-                <div className="text-xs text-slate-400 mb-1">缠论结论</div>
+                <div className="text-xs text-slate-400 mb-1">李彪分析框架结论</div>
                 <p className="text-sm text-slate-300">{clData.recommendation}</p>
               </div>
             </div>
@@ -258,7 +321,7 @@ export default function Report({ initialCode }: ReportProps) {
             <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
               <div className="flex items-center gap-2 mb-4">
                 <BarChart3 className="h-4 w-4 text-sky-400" />
-                <h3 className="text-sm font-semibold text-slate-200">丁昶五维评估</h3>
+                <h3 className="text-sm font-semibold text-slate-200">丁昶分析框架五维评估</h3>
               </div>
 
               {/* Mini dimension bars */}
@@ -322,7 +385,7 @@ export default function Report({ initialCode }: ReportProps) {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <ActionCard
-                title="缠论策略"
+                title="李彪策略"
                 content={clData.recommendation}
                 icon={LineChart}
                 color="emerald"
@@ -358,7 +421,7 @@ export default function Report({ initialCode }: ReportProps) {
               <div className="flex items-start gap-2">
                 <ArrowRight className="h-3 w-3 text-rose-500 mt-1 flex-shrink-0" />
                 <span className="text-sm text-rose-200/70">
-                  缠论当前为{clData.trendPosition}，{clData.divergenceType !== '无背驰' ? '出现' + clData.divergenceType + '信号需警惕' : '暂无背驰信号但需持续跟踪'}
+                  李彪分析框架当前为{clData.trendPosition}，{clData.divergenceType !== '无背驰' ? '出现' + clData.divergenceType + '信号需警惕' : '暂无背驰信号但需持续跟踪'}
                 </span>
               </div>
             </div>
@@ -400,7 +463,7 @@ export default function Report({ initialCode }: ReportProps) {
       {!hasData && (
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-12 text-center">
           <FileText className="h-8 w-8 text-slate-600 mx-auto mb-3" />
-          <p className="text-sm text-slate-500">请输入有效的ETF代码生成报告</p>
+          <p className="text-sm text-slate-500">请输入有效的ETF代码生成多框架综合报告</p>
           <p className="text-xs text-slate-600 mt-1">支持的代码: 510300, 512890, 515290, 588000, 159915</p>
         </div>
       )}

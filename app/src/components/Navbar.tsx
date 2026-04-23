@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import { TrendingUp, LineChart, BarChart3, FileText, Home } from 'lucide-react';
 
-export type Tab = 'home' | 'chanlun' | 'dingchang' | 'report';
+export type Tab = 'home' | 'overview' | 'chanlun' | 'dingchang';
 
 interface NavbarProps {
   activeTab: Tab;
@@ -10,9 +10,9 @@ interface NavbarProps {
 
 const navItems: Array<{ key: Tab; label: string; icon: typeof Home }> = [
   { key: 'home', label: '首页', icon: Home },
-  { key: 'chanlun', label: '缠论分析', icon: LineChart },
-  { key: 'dingchang', label: '丁昶评估', icon: BarChart3 },
-  { key: 'report', label: '综合报告', icon: FileText },
+  { key: 'overview', label: '多框架综合', icon: FileText },
+  { key: 'chanlun', label: '李彪分析框架', icon: LineChart },
+  { key: 'dingchang', label: '丁昶分析框架', icon: BarChart3 },
 ];
 
 export default function Navbar({ activeTab, onTabChange }: NavbarProps) {
@@ -25,7 +25,7 @@ export default function Navbar({ activeTab, onTabChange }: NavbarProps) {
               <TrendingUp className="h-5 w-5 text-emerald-400" />
             </div>
             <span className="text-lg font-bold text-slate-100 tracking-tight">
-              ETF双框架分析系统
+              ETF多框架分析系统
             </span>
           </div>
 

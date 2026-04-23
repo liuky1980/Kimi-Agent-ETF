@@ -1,7 +1,7 @@
 """
-缠论分析 Pydantic 模型
+李彪分析框架 Pydantic 模型
 ======================
-定义缠论技术分析的请求/响应数据结构，
+定义李彪分析框架的请求/响应数据结构，
 包括分型、笔、线段、中枢、背驰、买卖点及多周期共振结果。
 """
 
@@ -109,7 +109,7 @@ class ResonanceResult(BaseModel):
 # ────────────────────────────── 综合结果模型 ──────────────────────────────
 
 class ChanlunResult(BaseModel):
-    """缠论分析完整结果"""
+    """李彪分析框架完整结果"""
     # 基础信息
     etf_code: str = Field(..., description="ETF代码")
     etf_name: str = Field("", description="ETF名称")
@@ -165,7 +165,7 @@ class ChanlunResult(BaseModel):
     composite_resonance: float = Field(0.0, ge=0.0, le=100.0, description="综合共振得分")
 
     # 综合建议
-    recommendation: str = Field("", description="缠论综合建议")
+    recommendation: str = Field("", description="李彪分析框架综合建议")
     summary: str = Field("", description="分析摘要")
     risk_level: str = Field("", description="风险等级: low/medium/high")
 

@@ -1,12 +1,12 @@
 """
 API路由模块
 ============
-提供ETF双框架分析系统的RESTful API接口：
-- POST /api/v1/analyze — 双框架分析
+提供ETF多框架分析系统的RESTful API接口：
+- POST /api/v1/analyze — 多框架分析
 - GET /api/v1/etf/list — ETF列表
 - GET /api/v1/etf/{code}/basic — ETF基本信息
-- GET /api/v1/etf/{code}/chanlun — 缠论单独分析
-- GET /api/v1/etf/{code}/dingchang — 丁昶单独分析
+- GET /api/v1/etf/{code}/chanlun — 李彪分析框架单独分析
+- GET /api/v1/etf/{code}/dingchang — 丁昶分析框架单独分析
 - GET /api/v1/etf/{code}/multi-timeframe — 多周期数据
 - GET /api/v1/health — 健康检查
 """
@@ -20,8 +20,9 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from app.config import settings
 from app.chanlun.engine import ChanlunEngine
-from app.data.fetcher import ETFDataFetcher, DataFetchError
+from app.data.fetcher import get_data_fetcher, DataFetchError
 from app.dingchang.engine import DingChangEngine
 from app.models.chanlun import ChanlunResult
 from app.models.dingchang import (
@@ -39,16 +40,16 @@ router = APIRouter(prefix="/api/v1")
 # 全局引擎实例（单例）
 chanlun_engine = ChanlunEngine()
 dingchang_engine = DingChangEngine()
-data_fetcher = ETFDataFetcher()
+data_fetcher = get_data_fetcher()
 
 
 # ────────────────────────────── 核心分析接口 ──────────────────────────────
 
 @router.post("/analyze", response_model=ETFAnalysisResponse)
 async def analyze_etf(request: ETFAnalysisRequest):
-    """ETF双框架综合分析
+    """ETF多框架综合分析
 
-    同时对指定ETF执行缠论技术分析和丁昶五维评分，
+    同时对指定ETF执行李彪分析框架技术分析和丁昶分析框架五维评分，
     返回包含两种框架结果的综合分析报告。
 
     Parameters
@@ -59,7 +60,7 @@ async def analyze_etf(request: ETFAnalysisRequest):
     Returns
     -------
     ETFAnalysisResponse
-        双框架综合分析结果
+        多框架综合分析结果
     """
     start_time = time.time()
     etf_code = request.etf_code.strip()
@@ -85,7 +86,7 @@ async def analyze_etf(request: ETFAnalysisRequest):
             except Exception as e:
                 logger.warning(f"获取分钟数据失败: {e}")
 
-        # 3. 运行缠论分析
+        # 3. 运行李彪分析框架分析
         try:
             chanlun_result = chanlun_engine.analyze(
                 df_daily=df_daily,
@@ -96,10 +97,10 @@ async def analyze_etf(request: ETFAnalysisRequest):
             )
             chanlun_dict = chanlun_result.model_dump()
         except Exception as e:
-            logger.error(f"缠论分析失败: {e}")
+            logger.error(f"李彪分析框架分析失败: {e}")
             chanlun_dict = {"error": str(e), "etf_code": etf_code}
 
-        # 4. 运行丁昶分析
+        # 4. 运行丁昶分析框架分析
         try:
             dingchang_result = dingchang_engine.analyze(
                 etf_code=etf_code,
@@ -108,7 +109,7 @@ async def analyze_etf(request: ETFAnalysisRequest):
             )
             dingchang_dict = dingchang_result.model_dump()
         except Exception as e:
-            logger.error(f"丁昶分析失败: {e}")
+            logger.error(f"丁昶分析框架分析失败: {e}")
             dingchang_dict = {"error": str(e), "etf_code": etf_code}
 
         # 5. 生成综合分析摘要
@@ -129,7 +130,7 @@ async def analyze_etf(request: ETFAnalysisRequest):
             dual_signal=dual_signal,
             confidence=confidence,
             processing_time_ms=processing_time,
-            data_source="akshare",
+            data_source=settings.DATA_SOURCE,
             analysis_time=datetime.now()
         )
 
@@ -220,7 +221,7 @@ async def get_etf_basic(code: str):
 
 @router.get("/etf/{code}/chanlun")
 async def get_chanlun_analysis(code: str):
-    """获取ETF缠论单独分析
+    """获取ETF李彪分析框架单独分析
 
     Parameters
     ----------
@@ -230,7 +231,7 @@ async def get_chanlun_analysis(code: str):
     Returns
     -------
     dict
-        缠论分析结果
+        李彪分析框架分析结果
     """
     try:
         end_date = datetime.now().strftime("%Y%m%d")
@@ -259,13 +260,13 @@ async def get_chanlun_analysis(code: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"缠论分析ETF {code} 失败: {e}")
+        logger.error(f"李彪分析框架分析ETF {code} 失败: {e}")
         raise HTTPException(status_code=500, detail=f"分析失败: {e}")
 
 
 @router.get("/etf/{code}/dingchang")
 async def get_dingchang_analysis(code: str):
-    """获取ETF丁昶单独分析
+    """获取ETF丁昶分析框架单独分析
 
     Parameters
     ----------
@@ -275,7 +276,7 @@ async def get_dingchang_analysis(code: str):
     Returns
     -------
     dict
-        丁昶分析结果
+        丁昶分析框架分析结果
     """
     try:
         end_date = datetime.now().strftime("%Y%m%d")
@@ -291,7 +292,7 @@ async def get_dingchang_analysis(code: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"丁昶分析ETF {code} 失败: {e}")
+        logger.error(f"丁昶分析框架分析ETF {code} 失败: {e}")
         raise HTTPException(status_code=500, detail=f"分析失败: {e}")
 
 
@@ -336,29 +337,29 @@ async def get_multi_timeframe_data(code: str):
 # ────────────────────────────── 辅助函数 ──────────────────────────────
 
 def _generate_dual_summary(chanlun: Dict, dingchang: Dict) -> str:
-    """生成双框架综合分析摘要"""
+    """生成多框架综合分析摘要"""
     parts = []
 
-    # 缠论摘要
+    # 李彪分析框架摘要
     if "trend_position" in chanlun:
-        parts.append(f"缠论: {chanlun['trend_position']}")
+        parts.append(f"李彪: {chanlun['trend_position']}")
     if "divergence_type" in chanlun and chanlun["divergence_type"] != "none":
         parts.append(f"背驰: {chanlun['divergence_type']}")
 
-    # 丁昶摘要
+    # 丁昶分析框架摘要
     if "composite_score" in dingchang:
-        parts.append(f"丁昶: {dingchang['composite_score']:.0f}分/{dingchang.get('rating', 'N/A')}")
+        parts.append(f"丁昶分析框架: {dingchang['composite_score']:.0f}分/{dingchang.get('rating', 'N/A')}")
 
     return " | ".join(parts) if parts else "分析完成"
 
 
 def _determine_dual_action(chanlun: Dict, dingchang: Dict) -> str:
-    """确定双框架综合行动建议"""
-    # 丁昶评级
+    """确定多框架综合行动建议"""
+    # 丁昶分析框架评级
     rating = dingchang.get("rating", "")
     composite = dingchang.get("composite_score", 50)
 
-    # 缠论信号
+    # 李彪分析框架信号
     divergence = chanlun.get("divergence_type", "none")
     resonance = chanlun.get("composite_resonance", 0)
 
@@ -376,13 +377,13 @@ def _determine_dual_action(chanlun: Dict, dingchang: Dict) -> str:
 
 
 def _assess_dual_alignment(chanlun: Dict, dingchang: Dict) -> str:
-    """评估双框架信号一致性"""
-    # 缠论趋势
+    """评估多框架信号一致性"""
+    # 李彪分析框架趋势
     trend = chanlun.get("trend_position", "")
     chanlun_bullish = "上升" in trend or "bullish" in chanlun.get("divergence_type", "")
     chanlun_bearish = "下跌" in trend or "bearish" in chanlun.get("divergence_type", "")
 
-    # 丁昶信号
+    # 丁昶分析框架信号
     signal = dingchang.get("composite_signal", "")
     dingchang_bullish = signal == "bullish"
     dingchang_bearish = signal == "bearish"
@@ -397,12 +398,12 @@ def _assess_dual_alignment(chanlun: Dict, dingchang: Dict) -> str:
 
 
 def _calc_dual_confidence(chanlun: Dict, dingchang: Dict) -> float:
-    """计算双框架综合置信度"""
-    # 缠论置信度
+    """计算多框架综合置信度"""
+    # 李彪分析框架置信度
     chanlun_conf = chanlun.get("trend_confidence", 0.5)
     resonance = chanlun.get("composite_resonance", 50) / 100
 
-    # 丁昶置信度（信号强度）
+    # 丁昶分析框架置信度（信号强度）
     dingchang_conf = dingchang.get("signal_strength", 0.5)
 
     # 综合

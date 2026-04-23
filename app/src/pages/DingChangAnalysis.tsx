@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { dingchangMockData, popularETFs } from '@/data/mockData';
+import { dataCache } from '@/services/dataCache';
 import DingChangPanel from '@/components/DingChangPanel';
 import {
   Search,
@@ -8,6 +9,7 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -28,15 +30,49 @@ interface DingChangAnalysisProps {
 export default function DingChangAnalysis({ initialCode }: DingChangAnalysisProps) {
   const [searchCode, setSearchCode] = useState(initialCode || '');
   const [selectedCode, setSelectedCode] = useState(initialCode || '510300');
+  const [cacheWarning, setCacheWarning] = useState<string>('');
+
+  useEffect(() => {
+    if (initialCode) {
+      setSearchCode(initialCode);
+      setSelectedCode(initialCode);
+      checkCache(initialCode);
+    }
+  }, [initialCode]);
 
   const data = useMemo(() => {
+    // 优先从缓存读取，fallback到mock数据
+    const cached = dataCache.get(selectedCode);
+    if (cached?.data?.dingchang) {
+      return cached.data.dingchang as typeof dingchangMockData[keyof typeof dingchangMockData];
+    }
     return dingchangMockData[selectedCode] || dingchangMockData['510300'];
   }, [selectedCode]);
 
+  const isMockFallback = useMemo(() => {
+    const cached = dataCache.get(selectedCode);
+    return !cached?.data?.dingchang;
+  }, [selectedCode]);
+
+  const checkCache = (code: string) => {
+    if (!dataCache.has(code)) {
+      setCacheWarning('该标的暂无缓存数据，请先在首页搜索');
+    } else {
+      setCacheWarning('');
+    }
+  };
+
   const handleSearch = () => {
     const code = searchCode.trim();
-    if (code && dingchangMockData[code]) {
-      setSelectedCode(code);
+    if (code) {
+      if (!dataCache.has(code)) {
+        setCacheWarning('该标的暂无缓存数据，请先在首页搜索');
+      } else {
+        setCacheWarning('');
+      }
+      if (dingchangMockData[code]) {
+        setSelectedCode(code);
+      }
     }
   };
 
@@ -68,8 +104,8 @@ export default function DingChangAnalysis({ initialCode }: DingChangAnalysisProp
             <BarChart3 className="h-5 w-5 text-sky-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-100">丁昶评估框架</h1>
-            <p className="text-xs text-slate-500">Ding Chang Evaluation - 五维评分 · 价值投资</p>
+            <h1 className="text-xl font-bold text-slate-100">丁昶分析框架</h1>
+            <p className="text-xs text-slate-500">Ding Chang Analysis Framework - 五维评分 · 价值投资</p>
           </div>
         </div>
 
@@ -94,6 +130,22 @@ export default function DingChangAnalysis({ initialCode }: DingChangAnalysisProp
         </div>
       </div>
 
+      {/* Cache Warning */}
+      {cacheWarning && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+          <span className="text-xs text-amber-300">{cacheWarning}</span>
+        </div>
+      )}
+
+      {/* Data Source Badge */}
+      {isMockFallback && (
+        <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-1.5 flex items-center gap-2 w-fit">
+          <span className="text-[11px] text-slate-400">当前展示: </span>
+          <span className="rounded bg-slate-700 px-2 py-0.5 text-[11px] text-slate-300">模拟数据</span>
+        </div>
+      )}
+
       {/* ETF Selector */}
       <div className="flex flex-wrap gap-2">
         {popularETFs.map((etf) => {
@@ -104,7 +156,10 @@ export default function DingChangAnalysis({ initialCode }: DingChangAnalysisProp
           return (
             <button
               key={etf.code}
-              onClick={() => setSelectedCode(etf.code)}
+              onClick={() => {
+                setSelectedCode(etf.code);
+                checkCache(etf.code);
+              }}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-all',
                 isActive
@@ -112,8 +167,7 @@ export default function DingChangAnalysis({ initialCode }: DingChangAnalysisProp
                   : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-300'
               )}
             >
-              <span className="font-mono text-xs">{etf.code}</span>
-              <span className="text-xs">{etf.name}</span>
+              <span className="font-mono text-xs">{etf.code}.{etf.name}</span>
               {ratingBuy && <TrendingUp className="h-3 w-3 text-emerald-400" />}
               {ratingAvoid && <TrendingDown className="h-3 w-3 text-rose-400" />}
               {!ratingBuy && !ratingAvoid && <Minus className="h-3 w-3 text-amber-400" />}

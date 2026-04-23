@@ -354,5 +354,30 @@ class DataFetchError(Exception):
     pass
 
 
-# 全局数据获取器实例
+# ────────────────────────────── 统一数据获取入口（工厂模式） ──────────────────────────────
+
+def get_data_fetcher():
+    """根据配置获取对应的数据获取器
+
+    通过 settings.DATA_SOURCE 配置项切换数据源：
+    - "akshare"  → 使用 akshare 免费数据源（默认）
+    - "tushare"  → 使用 tushare Pro 数据源
+
+    Returns
+    -------
+    ETFDataFetcher | TushareETFDataFetcher
+        对应配置的数据获取器实例
+    """
+    if settings.DATA_SOURCE == "tushare":
+        if not settings.TUSHARE_ENABLED:
+            logger.warning("Tushare已禁用，回退到akshare")
+            return ETFDataFetcher()
+        from app.data.tushare_fetcher import TushareETFDataFetcher
+
+        logger.info("使用Tushare数据源")
+        return TushareETFDataFetcher()
+    return ETFDataFetcher()  # 默认 akshare
+
+
+# 全局数据获取器实例（默认akshare，后续通过工厂方法按需创建）
 fetcher = ETFDataFetcher()

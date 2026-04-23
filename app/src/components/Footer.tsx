@@ -10,12 +10,12 @@ export default function Footer() {
               <TrendingUp className="h-4 w-4 text-emerald-400" />
             </div>
             <span className="text-sm font-medium text-slate-300">
-              ETF双框架智能分析系统
+              ETF多框架分析系统
             </span>
           </div>
 
           <div className="flex items-center gap-6">
-            <span className="text-xs text-slate-500">缠论技术分析 + 丁昶评估框架</span>
+            <span className="text-xs text-slate-500">李彪分析框架 + 丁昶分析框架</span>
             <div className="flex items-center gap-3">
               <button className="text-slate-500 hover:text-slate-300 transition-colors">
                 <Github className="h-4 w-4" />

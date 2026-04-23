@@ -1,7 +1,7 @@
 """
-缠论分析引擎
+李彪分析框架引擎
 =============
-缠论分析的核心引擎，整合分型识别、笔划分、线段划分、
+李彪分析框架的核心引擎，整合分型识别、笔划分、线段划分、
 中枢识别、背驰检测、买卖点识别和多周期共振分析。
 
 完整分析流程：
@@ -39,9 +39,9 @@ logger = logging.getLogger(__name__)
 
 
 class ChanlunEngine:
-    """缠论分析引擎
+    """李彪分析框架引擎
 
-    整合缠论全部分析模块，提供一站式ETF技术分析能力。
+    整合李彪分析框架全部分析模块，提供一站式ETF技术分析能力。
     """
 
     def __init__(self):
@@ -61,7 +61,7 @@ class ChanlunEngine:
         etf_code: str = "",
         etf_name: str = ""
     ) -> ChanlunResult:
-        """执行完整的缠论分析流程
+        """执行完整的李彪分析框架分析流程
 
         Parameters
         ----------
@@ -79,9 +79,9 @@ class ChanlunEngine:
         Returns
         -------
         ChanlunResult
-            完整的缠论分析结果
+            完整的李彪分析框架结果
         """
-        logger.info(f"开始对 {etf_code} 执行缠论分析")
+        logger.info(f"开始对 {etf_code} 执行李彪分析框架分析")
 
         # Step 1: 分型识别
         top_fractals, bottom_fractals = self.fractal_finder.find(df_daily)
@@ -178,7 +178,7 @@ class ChanlunEngine:
             risk_level=risk_level
         )
 
-        logger.info(f"缠论分析完成: {etf_code} - 趋势: {result.trend_position}, "
+        logger.info(f"李彪分析框架分析完成: {etf_code} - 趋势: {result.trend_position}, "
                     f"背驰: {result.divergence_type}, 买卖点: {len(buy_points)} 个")
         return result
 

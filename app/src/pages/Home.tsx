@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { popularETFs, recentAnalyses } from '@/data/mockData';
+import { dataCache, type CacheItem } from '@/services/dataCache';
 import type { Tab } from '@/components/Navbar';
 import { cn } from '@/lib/utils';
 import {
@@ -12,6 +13,7 @@ import {
   ArrowRight,
   Zap,
   Shield,
+  Layers,
 } from 'lucide-react';
 
 interface HomeProps {
@@ -20,11 +22,34 @@ interface HomeProps {
 
 export default function Home({ onNavigate }: HomeProps) {
   const [searchCode, setSearchCode] = useState('');
+  const [searchPool, setSearchPool] = useState<CacheItem[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = dataCache.subscribe((pool) => {
+      setSearchPool(pool);
+    });
+    setSearchPool(dataCache.getAll()); // 初始同步
+    return unsubscribe;
+  }, []);
+
+  const addToPool = useCallback((item: Omit<CacheItem, 'status'> & { status?: CacheItem['status'] }) => {
+    dataCache.add(item);
+  }, []);
 
   const handleSearch = () => {
     const code = searchCode.trim();
     if (code) {
-      onNavigate('chanlun', code);
+      const etf = popularETFs.find(e => e.code === code);
+      const name = etf?.name || code;
+
+      addToPool({
+        code,
+        name,
+        source: 'akshare',
+        updateTime: new Date().toLocaleString()
+      });
+
+      onNavigate('overview', code);
     }
   };
 
@@ -43,10 +68,10 @@ export default function Home({ onNavigate }: HomeProps) {
             </div>
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold text-slate-100 mb-3 tracking-tight">
-            ETF双框架智能分析系统
+            ETF多框架分析系统
           </h1>
           <p className="text-base text-slate-400 max-w-2xl mb-6 leading-relaxed">
-            融合缠论技术分析与丁昶评估框架，提供多维度的ETF投资分析工具。
+            融合李彪分析框架与丁昶分析框架，提供多维度的ETF投资分析工具。
             从趋势结构到价值评分，辅助投资决策。
           </p>
 
@@ -74,17 +99,58 @@ export default function Home({ onNavigate }: HomeProps) {
         </div>
       </section>
 
+      {/* Search Pool */}
+      <section>
+        <h2 className="text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2">
+          <Layers className="h-5 w-5 text-amber-400" />
+          标的池
+        </h2>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+          {searchPool.length === 0 ? (
+            <div className="text-center py-8">
+              <Search className="h-8 w-8 text-slate-600 mx-auto mb-3" />
+              <p className="text-sm text-slate-500">搜索ETF代码，结果将实时更新至此</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {searchPool.map((item) => (
+                <button
+                  key={item.code}
+                  onClick={() => onNavigate('overview', item.code)}
+                  className={cn(
+                    'w-full flex items-center justify-between rounded-lg border px-4 py-3 text-sm transition-all',
+                    'border-slate-800 bg-slate-800/40 text-slate-300 hover:border-amber-500/30 hover:bg-slate-800/60'
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-xs font-bold text-amber-400">{item.code}</span>
+                    <span className="text-sm text-slate-200">{item.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[11px] text-slate-400">
+                      {item.source}
+                    </span>
+                    <span className="text-[11px] text-slate-500">{item.updateTime}</span>
+                    <ArrowRight className="h-3.5 w-3.5 text-slate-500" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* Quick Access ETFs */}
       <section>
         <h2 className="text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2">
           <LineChart className="h-5 w-5 text-emerald-400" />
-          热门ETF快速分析
+          热门ETF快速入口
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {popularETFs.map((etf) => (
             <button
               key={etf.code}
-              onClick={() => onNavigate('chanlun', etf.code)}
+              onClick={() => onNavigate('overview', etf.code)}
               className="group flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-4 hover:border-emerald-500/30 hover:bg-slate-800/60 transition-all"
             >
               <div className="flex items-center gap-3">
@@ -108,7 +174,7 @@ export default function Home({ onNavigate }: HomeProps) {
       <section>
         <h2 className="text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2">
           <BarChart3 className="h-5 w-5 text-sky-400" />
-          双框架分析体系
+          多框架分析体系
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
@@ -117,12 +183,12 @@ export default function Home({ onNavigate }: HomeProps) {
                 <LineChart className="h-5 w-5 text-emerald-400" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-slate-200">缠论技术分析</h3>
-                <p className="text-xs text-slate-500">Chanlun Technical Analysis</p>
+                <h3 className="text-base font-semibold text-slate-200">李彪分析框架</h3>
+                <p className="text-xs text-slate-500">Libiao Analysis Framework</p>
               </div>
             </div>
             <p className="text-sm text-slate-400 leading-relaxed mb-3">
-              基于缠中说禅理论，通过分型、笔、中枢、线段的层次结构识别，
+              基于李彪分析框架，通过分型、笔、中枢、线段的层次结构识别，
               判断趋势位置，检测背驰信号，定位三类买卖点。
             </p>
             <div className="flex flex-wrap gap-2">
@@ -143,8 +209,8 @@ export default function Home({ onNavigate }: HomeProps) {
                 <BarChart3 className="h-5 w-5 text-sky-400" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-slate-200">丁昶评估框架</h3>
-                <p className="text-xs text-slate-500">Ding Chang Evaluation</p>
+                <h3 className="text-base font-semibold text-slate-200">丁昶分析框架</h3>
+                <p className="text-xs text-slate-500">Ding Chang Analysis Framework</p>
               </div>
             </div>
             <p className="text-sm text-slate-400 leading-relaxed mb-3">
@@ -195,9 +261,9 @@ export default function Home({ onNavigate }: HomeProps) {
                       <span
                         className={cn(
                           'inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium',
-                          item.type === '缠论分析' && 'bg-emerald-500/10 text-emerald-400',
-                          item.type === '丁昶评估' && 'bg-sky-500/10 text-sky-400',
-                          item.type === '综合报告' && 'bg-amber-500/10 text-amber-400'
+                          item.type === '李彪分析框架' && 'bg-emerald-500/10 text-emerald-400',
+                          item.type === '丁昶分析框架' && 'bg-sky-500/10 text-sky-400',
+                          item.type === '多框架综合' && 'bg-amber-500/10 text-amber-400'
                         )}
                       >
                         {item.type}
@@ -206,7 +272,7 @@ export default function Home({ onNavigate }: HomeProps) {
                     <td className="px-4 py-3 text-slate-500">{item.date}</td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={() => onNavigate('report', item.code)}
+                        onClick={() => onNavigate('overview', item.code)}
                         className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1 ml-auto"
                       >
                         <FileText className="h-3 w-3" />

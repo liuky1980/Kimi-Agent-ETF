@@ -351,9 +351,9 @@ export const popularETFs = [
 ];
 
 export const recentAnalyses = [
-  { code: '510300', name: '沪深300ETF', date: '2026-04-23', type: '缠论分析' },
-  { code: '512890', name: '红利低波ETF', date: '2026-04-22', type: '丁昶评估' },
-  { code: '588000', name: '科创50ETF', date: '2026-04-21', type: '综合报告' },
-  { code: '515290', name: '银行ETF', date: '2026-04-20', type: '缠论分析' },
-  { code: '159915', name: '创业板ETF', date: '2026-04-19', type: '综合报告' },
+  { code: '510300', name: '沪深300ETF', date: '2026-04-23', type: '李彪分析框架' },
+  { code: '512890', name: '红利低波ETF', date: '2026-04-22', type: '丁昶分析框架' },
+  { code: '588000', name: '科创50ETF', date: '2026-04-21', type: '多框架综合' },
+  { code: '515290', name: '银行ETF', date: '2026-04-20', type: '李彪分析框架' },
+  { code: '159915', name: '创业板ETF', date: '2026-04-19', type: '多框架综合' },
 ];
