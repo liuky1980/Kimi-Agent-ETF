@@ -54,7 +54,7 @@ function normalizeChanlun(raw: Record<string, unknown>): ChanlunResult | null {
     macdAreaPrevious: Number(get('macdAreaPrevious')) || 0,
     buySellPoints: (get('buySellPoints') as ChanlunResult['buySellPoints']) || [],
     dailyResonance: Number(get('dailyResonance')) || 0,
-    fivedayResonance: Number(get('fivedayResonance')) || 0,
+    weeklyResonance: Number(get('weeklyResonance')) || 0,
     hourlyResonance: Number(get('hourlyResonance')) || 0,
     compositeResonance: Number(get('compositeResonance')) || 0,
     recommendation: (get('recommendation') as string) || '',

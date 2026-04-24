@@ -45,7 +45,7 @@ class ResonanceAnalyzer:
 
     def calculate_resonance(
         self,
-        fiveday_signal: Dict,
+        weekly_signal: Dict,
         daily_signal: Dict,
         hourly_signal: Dict
     ) -> ResonanceResult:
@@ -53,7 +53,7 @@ class ResonanceAnalyzer:
 
         Parameters
         ----------
-        fiveday_signal : dict
+        weekly_signal : dict
             周线周期分析结果，包含 trend, confidence, centers, divergence, bs_point
         daily_signal : dict
             日线周期分析结果
@@ -66,16 +66,16 @@ class ResonanceAnalyzer:
             共振分析结果
         """
         # 构建单周期信号
-        fiveday = self._parse_signal(fiveday_signal, "fiveday")
+        weekly = self._parse_signal(weekly_signal, "weekly")
         daily = self._parse_signal(daily_signal, "daily")
         hourly = self._parse_signal(hourly_signal, "hourly")
 
         # 计算各周期独立得分
-        fiveday_score = self._score_timeframe(weekly)
+        weekly_score = self._score_timeframe(weekly)
         daily_score = self._score_timeframe(daily)
         hourly_score = self._score_timeframe(hourly)
 
-        weekly.resonance_score = fiveday_score
+        weekly.resonance_score = weekly_score
         daily.resonance_score = daily_score
         hourly.resonance_score = hourly_score
 
@@ -100,10 +100,10 @@ class ResonanceAnalyzer:
 
     def calculate_simple_resonance(
         self,
-        fiveday_trend: str,
+        weekly_trend: str,
         daily_trend: str,
         hourly_trend: str,
-        fiveday_divergence: bool = False,
+        weekly_divergence: bool = False,
         daily_divergence: bool = False,
         hourly_divergence: bool = False
     ) -> dict:
@@ -111,9 +111,9 @@ class ResonanceAnalyzer:
 
         Parameters
         ----------
-        fiveday_trend, daily_trend, hourly_trend : str
+        weekly_trend, daily_trend, hourly_trend : str
             各周期趋势方向 'up'/'down'/'consolidation'
-        fiveday_divergence, daily_divergence, hourly_divergence : bool
+        weekly_divergence, daily_divergence, hourly_divergence : bool
             各周期是否有背驰
 
         Returns
@@ -121,8 +121,8 @@ class ResonanceAnalyzer:
         dict
             简化共振结果
         """
-        trends = [fiveday_trend, daily_trend, hourly_trend]
-        divergences = [fiveday_divergence, daily_divergence, hourly_divergence]
+        trends = [weekly_trend, daily_trend, hourly_trend]
+        divergences = [weekly_divergence, daily_divergence, hourly_divergence]
 
         # 趋势一致性
         up_count = sum(1 for t in trends if t == "up")
@@ -165,8 +165,8 @@ class ResonanceAnalyzer:
 
         # 周期对齐描述
         aligned_periods = []
-        if fiveday_trend == direction:
-            aligned_periods.append("五日线")
+        if weekly_trend == direction:
+            aligned_periods.append("周线")
         if daily_trend == direction:
             aligned_periods.append("日线")
         if hourly_trend == direction:
@@ -178,7 +178,7 @@ class ResonanceAnalyzer:
             "direction": direction,
             "aligned_periods": aligned_periods,
             "alignment": f"{'/'.join(aligned_periods)} 周期共振 ({len(aligned_periods)}/3)",
-            "fiveday_score": base_score if fiveday_trend == direction else 30,
+            "weekly_score": base_score if weekly_trend == direction else 30,
             "daily_score": base_score if daily_trend == direction else 30,
             "hourly_score": base_score if hourly_trend == direction else 30,
             "recommendation": self._quick_recommendation(direction, level)
@@ -236,7 +236,7 @@ class ResonanceAnalyzer:
 
     def _calc_composite_score(
         self,
-        fiveday: TimeframeSignal,
+        weekly: TimeframeSignal,
         daily: TimeframeSignal,
         hourly: TimeframeSignal
     ) -> float:
@@ -265,7 +265,7 @@ class ResonanceAnalyzer:
         )
 
         # 方向一致性加成
-        trends = [fiveday.trend, daily.trend, hourly.trend]
+        trends = [weekly.trend, daily.trend, hourly.trend]
         up_count = sum(1 for t in trends if t == "up")
         down_count = sum(1 for t in trends if t == "down")
         max_aligned = max(up_count, down_count)
@@ -280,7 +280,7 @@ class ResonanceAnalyzer:
 
         # 背驰共振加成
         divergence_count = sum([
-            fiveday.divergence_present,
+            weekly.divergence_present,
             daily.divergence_present,
             hourly.divergence_present
         ])
@@ -291,13 +291,13 @@ class ResonanceAnalyzer:
 
     def _determine_level(
         self,
-        fiveday: TimeframeSignal,
+        weekly: TimeframeSignal,
         daily: TimeframeSignal,
         hourly: TimeframeSignal,
         composite: float
     ) -> tuple:
         """确定共振等级和描述"""
-        trends = [fiveday.trend, daily.trend, hourly.trend]
+        trends = [weekly.trend, daily.trend, hourly.trend]
         up_count = sum(1 for t in trends if t == "up")
         down_count = sum(1 for t in trends if t == "down")
 
@@ -316,8 +316,8 @@ class ResonanceAnalyzer:
         # 周期对齐描述
         aligned = []
         majority = "up" if up_count >= down_count else "down"
-        if fiveday.trend == majority:
-            aligned.append("五日线")
+        if weekly.trend == majority:
+            aligned.append("周线")
         if daily.trend == majority:
             aligned.append("日线")
         if hourly.trend == majority:
@@ -333,14 +333,14 @@ class ResonanceAnalyzer:
 
     def _generate_recommendation(
         self,
-        fiveday: TimeframeSignal,
+        weekly: TimeframeSignal,
         daily: TimeframeSignal,
         hourly: TimeframeSignal,
         composite: float,
         level: str
     ) -> str:
         """生成共振策略建议"""
-        trends = [fiveday.trend, daily.trend, hourly.trend]
+        trends = [weekly.trend, daily.trend, hourly.trend]
         up_count = sum(1 for t in trends if t == "up")
         down_count = sum(1 for t in trends if t == "down")
 
@@ -351,9 +351,9 @@ class ResonanceAnalyzer:
         elif composite >= 50:
             return "结构清晰但周期存在分歧，建议观察等待"
         elif up_count >= 2:
-            return "五日线趋势向上但短周期不配合，谨慎追涨"
+            return "周线趋势向上但短周期不配合，谨慎追涨"
         elif down_count >= 2:
-            return "五日线趋势向下但短周期不配合，谨慎杀跌"
+            return "周线趋势向下但短周期不配合，谨慎杀跌"
         else:
             return "多周期震荡，方向不明，建议观望"
 

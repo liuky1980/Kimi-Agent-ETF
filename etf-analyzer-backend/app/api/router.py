@@ -85,12 +85,12 @@ async def analyze_etf(request: ETFAnalysisRequest):
             raise HTTPException(status_code=404, detail=f"未找到ETF {etf_code} 的数据")
 
         # 2. 获取多周期数据
-        df_fiveday = None
+        df_weekly = None
         df_hourly = None
         if request.include_minute:
             try:
                 start_weekly = (datetime.now() - timedelta(days=1825)).strftime("%Y%m%d")
-                df_fiveday = data_fetcher.get_etf_fiveday(etf_code, start_weekly, end_date)
+                df_weekly = data_fetcher.get_etf_weekly(etf_code, start_weekly, end_date)
                 df_hourly = data_fetcher.get_etf_hourly(etf_code)
             except Exception as e:
                 logger.warning(f"获取多周期数据失败: {e}")
@@ -98,7 +98,7 @@ async def analyze_etf(request: ETFAnalysisRequest):
         # 3. 运行李栋分析框架分析
         try:
             chanlun_result = chanlun_engine.analyze(
-                df_fiveday=df_fiveday,
+                df_weekly=df_weekly,
                 df_daily=df_daily,
                 df_hourly=df_hourly,
                 etf_code=etf_code,
@@ -278,14 +278,14 @@ async def get_chanlun_analysis(code: str):
         # 获取多周期数据
         try:
             start_weekly = (datetime.now() - timedelta(days=1825)).strftime("%Y%m%d")
-            df_fiveday = data_fetcher.get_etf_fiveday(code, start_weekly, end_date)
+            df_weekly = data_fetcher.get_etf_weekly(code, start_weekly, end_date)
             df_hourly = data_fetcher.get_etf_hourly(code)
         except Exception:
-            df_fiveday = None
+            df_weekly = None
             df_hourly = None
 
         result = chanlun_engine.analyze(
-            df_fiveday=df_fiveday,
+            df_weekly=df_weekly,
             df_daily=df_daily,
             df_hourly=df_hourly,
             etf_code=code

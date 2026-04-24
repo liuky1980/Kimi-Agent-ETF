@@ -55,7 +55,7 @@ class ChanlunEngine:
 
     def analyze(
         self,
-        df_fiveday: Optional[pd.DataFrame] = None,
+        df_weekly: Optional[pd.DataFrame] = None,
         df_daily: pd.DataFrame = None,
         df_hourly: Optional[pd.DataFrame] = None,
         etf_code: str = "",
@@ -65,7 +65,7 @@ class ChanlunEngine:
 
         Parameters
         ----------
-        df_fiveday : Optional[pd.DataFrame]
+        df_weekly : Optional[pd.DataFrame]
             周线K线数据
         df_daily : pd.DataFrame
             日线K线数据
@@ -121,9 +121,9 @@ class ChanlunEngine:
         )
 
         # Step 8: 多周期共振
-        if df_fiveday is not None and df_hourly is not None:
+        if df_weekly is not None and df_hourly is not None:
             resonance = self._calculate_multi_timeframe_resonance(
-                df_fiveday, df_daily, df_hourly
+                df_weekly, df_daily, df_hourly
             )
         else:
             # 只有日线数据时，使用简化共振
@@ -174,7 +174,7 @@ class ChanlunEngine:
             macd_area_previous=divergence.macd_area_previous,
             buy_sell_points=[self._bs_point_to_dict(bp) for bp in buy_points],
             daily_resonance=resonance.get("daily_score", 50.0),
-            fiveday_resonance=resonance.get("fiveday_score", 0.0),
+            weekly_resonance=resonance.get("weekly_score", 0.0),
             hourly_resonance=resonance.get("hourly_score", 0.0),
             composite_resonance=resonance.get("composite_score", 50.0),
             recommendation=recommendation,
@@ -302,20 +302,20 @@ class ChanlunEngine:
 
     def _calculate_multi_timeframe_resonance(
         self,
-        df_fiveday: pd.DataFrame,
+        df_weekly: pd.DataFrame,
         df_daily: pd.DataFrame,
         df_hourly: pd.DataFrame
     ) -> Dict:
         """计算多周期共振"""
-        fiveday_signal = self.analyze_single_timeframe(df_fiveday)
+        weekly_signal = self.analyze_single_timeframe(df_weekly)
         daily_signal = self.analyze_single_timeframe(df_daily)
         hourly_signal = self.analyze_single_timeframe(df_hourly)
 
         result = self.resonance_analyzer.calculate_simple_resonance(
-            fiveday_signal["trend"],
+            weekly_signal["trend"],
             daily_signal["trend"],
             hourly_signal["trend"],
-            fiveday_signal["divergence"],
+            weekly_signal["divergence"],
             daily_signal["divergence"],
             hourly_signal["divergence"]
         )

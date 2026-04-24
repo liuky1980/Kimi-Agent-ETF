@@ -659,7 +659,25 @@ class TushareETFDataFetcher:
 
         result = {}
         # 周线：通过日线重采样构建（tushare无直接周线接口，用日线代替）
-        result["fiveday"] = self.get_etf_daily(code, start_weekly, end_date)
+        # 周线：通过日线重采样构建（tushare无直接周线接口）
+        df_daily_long = self.get_etf_daily(code, start_weekly, end_date)
+        if not df_daily_long.empty:
+            df_daily_long = df_daily_long.set_index('date')
+            df_weekly = df_daily_long.resample('W').agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum',
+                'amount': 'sum',
+                'amplitude': 'mean',
+                'pct_change': 'sum',
+                'change': 'sum',
+                'turnover': 'mean'
+            }).dropna().reset_index()
+            result["weekly"] = df_weekly
+        else:
+            result["weekly"] = df_daily_long
         result["daily"] = self.get_etf_daily(code, start_daily, end_date)
         result["hourly"] = self.get_etf_minute(code, "60")
 

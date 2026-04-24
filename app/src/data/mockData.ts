@@ -22,7 +22,7 @@ export interface ChanlunResult {
     description: string;
   }>;
   dailyResonance: number;
-  fivedayResonance: number;
+  weeklyResonance: number;
   hourlyResonance: number;
   compositeResonance: number;
   recommendation: string;

@@ -97,7 +97,7 @@ class TimeframeSignal(BaseModel):
 
 class ResonanceResult(BaseModel):
     """多周期共振分析结果"""
-    fiveday: TimeframeSignal = Field(..., description="五日线周期信号")
+    weekly: TimeframeSignal = Field(..., description="周线周期信号")
     daily: TimeframeSignal = Field(..., description="日线周期信号")
     hourly: TimeframeSignal = Field(..., description="小时线周期信号")
     composite_score: float = Field(..., ge=0.0, le=100.0, description="综合共振得分")
@@ -159,7 +159,7 @@ class ChanlunResult(BaseModel):
     buy_sell_points: List[BuySellPoint] = Field(default_factory=list, description="买卖点列表")
 
     # 多周期共振
-    fiveday_resonance: float = Field(0.0, ge=0.0, le=100.0, description="五日线共振得分")
+    weekly_resonance: float = Field(0.0, ge=0.0, le=100.0, description="周线共振得分")
     daily_resonance: float = Field(0.0, ge=0.0, le=100.0, description="日线共振得分")
     hourly_resonance: float = Field(0.0, ge=0.0, le=100.0, description="小时线共振得分")
     composite_resonance: float = Field(0.0, ge=0.0, le=100.0, description="综合共振得分")

@@ -67,7 +67,7 @@ export default function ChanlunPanel({ data }: ChanlunPanelProps) {
   ];
 
   const resonanceData = [
-    { name: '五日线', value: data.fivedayResonance },
+    { name: '周线', value: data.weeklyResonance },
     { name: '日线', value: data.dailyResonance },
     { name: '小时线', value: data.hourlyResonance },
   ];
