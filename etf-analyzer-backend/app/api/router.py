@@ -171,7 +171,7 @@ async def analyze_etf(request: ETFAnalysisRequest):
 @router.get("/etf/list")
 async def get_etf_list(
     category: Optional[str] = Query(None, description="ETF类别筛选"),
-    limit: int = Query(100, ge=1, le=1000, description="返回数量限制")
+    limit: int = Query(1000, ge=1, le=5000, description="返回数量限制")
 ):
     """获取ETF列表
 

@@ -41,7 +41,7 @@ class ResonanceAnalyzer:
     """
 
     def __init__(self):
-        self.threshold = settings.CHANLUN_RESonance_THRESHOlD
+        self.threshold = settings.CHANLUN_RESONANCE_THRESHOLD
 
     def calculate_resonance(
         self,

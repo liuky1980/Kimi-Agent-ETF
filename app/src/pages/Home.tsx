@@ -23,37 +23,7 @@ interface HomeProps {
 export default function Home({ onNavigate }: HomeProps) {
   const [searchCode, setSearchCode] = useState('');
   const [searchPool, setSearchPool] = useState<CacheItem[]>([]);
-  const [popularETFs, setPopularETFs] = useState<Array<{ code: string; name: string; price?: number; change_pct?: number }>>([]);
-  const [isLoadingPopular, setIsLoadingPopular] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-
-  // 组件挂载时获取ETF列表
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoadingPopular(true);
-    api.getETFList(20)
-      .then((resp) => {
-        if (cancelled) return;
-        if (resp.etfs && resp.etfs.length > 0) {
-          setPopularETFs(resp.etfs.map((e) => ({
-            code: e.code,
-            name: e.name,
-            price: e.price,
-            change_pct: e.change_pct,
-          })));
-        }
-      })
-      .catch(() => {
-        // API降级：静默失败，热门ETF区域显示为空
-        if (!cancelled) {
-          setPopularETFs([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingPopular(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
 
   useEffect(() => {
     const unsubscribe = dataCache.subscribe((pool) => {
@@ -224,54 +194,6 @@ export default function Home({ onNavigate }: HomeProps) {
             </div>
           )}
         </div>
-      </section>
-
-      {/* Quick Access ETFs */}
-      <section>
-        <h2 className="text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2">
-          <LineChart className="h-5 w-5 text-emerald-400" />
-          热门ETF快速入口
-        </h2>
-        {isLoadingPopular ? (
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
-            <div className="text-sm text-slate-500">加载中...</div>
-          </div>
-        ) : popularETFs.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {popularETFs.map((etf) => (
-              <button
-                key={etf.code}
-                onClick={() => onNavigate('overview', etf.code)}
-                className="group flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-4 hover:border-emerald-500/30 hover:bg-slate-800/60 transition-all"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 group-hover:bg-emerald-500/15 transition-colors">
-                    <span className="text-xs font-mono font-bold text-slate-300 group-hover:text-emerald-400">
-                      {etf.code.slice(0, 3)}
-                    </span>
-                  </div>
-                  <div className="text-left">
-                    {/* 只显示代码，不显示中文名称 */}
-                    <div className="text-sm font-medium text-slate-200 font-mono">{etf.code}</div>
-                    {etf.price !== undefined && (
-                      <div className="text-xs text-slate-500">
-                        {etf.price.toFixed(3)}
-                        <span className={cn('ml-1', (etf.change_pct ?? 0) >= 0 ? 'text-red-400' : 'text-green-400')}>
-                          {(etf.change_pct ?? 0) >= 0 ? '+' : ''}{etf.change_pct?.toFixed(2) ?? '--'}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-emerald-400 transition-colors" />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
-            <p className="text-sm text-slate-500">暂无热门ETF数据，请在上方搜索框输入ETF代码进行分析</p>
-          </div>
-        )}
       </section>
 
       {/* Framework Cards */}

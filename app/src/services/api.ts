@@ -60,7 +60,7 @@ class ETFApiService {
   }
 
   /** 获取ETF列表 */
-  async getETFList(limit: number = 100): Promise<ETFListResponse> {
+  async getETFList(limit: number = 1000): Promise<ETFListResponse> {
     return this.request<ETFListResponse>(`/etf/list?limit=${limit}`);
   }
 
