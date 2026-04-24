@@ -36,11 +36,11 @@ export interface DingChangResult {
   compositeScore: number;
   rating: '买入' | '持有' | '观察' | '回避';
   dimensions: {
-    dividendQuality: { score: number; yield: number; growth: number; stability: number; continuity: number };
-    valuationSafety: { score: number; pb: number; pbPercentile: number; pe: number; peg: number; spread: number };
-    profitability: { score: number; roe: number; roic: number; volatility: number; cashCoverage: number };
-    capitalFlow: { score: number; insuranceChange: number; etfFlow: number; researchFreq: number; northbound: number };
-    macroFit: { score: number; cycleMatch: number; rateEnv: number; policy: number; globalVal: number };
+    dividendQuality: { score: number; [key: string]: any };
+    valuationSafety: { score: number; [key: string]: any };
+    profitability: { score: number; [key: string]: any };
+    capitalFlow: { score: number; [key: string]: any };
+    macroFit: { score: number; [key: string]: any };
   };
   compositeSignal: '增持' | '维持' | '减持';
   signalFactors: { trend: number; insurance: number; crowding: number };

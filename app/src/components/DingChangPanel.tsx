@@ -38,8 +38,9 @@ const dimensionMeta = [
     subs: [
       { key: 'dividend_yield', label: '股息率', unit: '%' },
       { key: 'yield_5y_avg', label: '5年均值', unit: '%' },
-      { key: 'payout_consistency', label: '分红连续性', unit: '分' },
-      { key: 'distribution_quality', label: '分红质量', unit: '分' },
+      { key: 'payout_consistency', label: '分红连续性', unit: '' },
+      { key: 'distribution_quality', label: '分红质量', unit: '' },
+      { key: 'capital_return_efficiency', label: '资本回报效率', unit: '' },
     ],
   },
   {
@@ -49,11 +50,13 @@ const dimensionMeta = [
     icon: Shield,
     color: '#3b82f6',
     subs: [
-      { key: 'pb', label: 'PB', unit: 'x' },
-      { key: 'pbPercentile', label: 'PB百分位', unit: '%' },
       { key: 'pe_ttm', label: 'PE-TTM', unit: 'x' },
+      { key: 'pe_percentile', label: 'PE百分位', unit: '%' },
+      { key: 'pb', label: 'PB', unit: 'x' },
+      { key: 'pb_percentile', label: 'PB百分位', unit: '%' },
       { key: 'peg', label: 'PEG', unit: '' },
       { key: 'spread_risk_free', label: '无风险利差', unit: '%' },
+      { key: 'nav_discount_premium', label: '折溢价', unit: '%' },
     ],
   },
   {
@@ -65,8 +68,10 @@ const dimensionMeta = [
     subs: [
       { key: 'roe', label: 'ROE', unit: '%' },
       { key: 'roic', label: 'ROIC', unit: '%' },
-      { key: 'earnings_stability', label: '盈利稳定性', unit: '分' },
-      { key: 'cash_flow_quality', label: '现金流质量', unit: '分' },
+      { key: 'earnings_stability', label: '盈利稳定性', unit: '' },
+      { key: 'earnings_growth_3y', label: '3年盈利增长', unit: '%' },
+      { key: 'revenue_growth_3y', label: '3年营收增长', unit: '%' },
+      { key: 'cash_flow_quality', label: '现金流质量', unit: '' },
     ],
   },
   {
@@ -76,10 +81,13 @@ const dimensionMeta = [
     icon: Users,
     color: '#8b5cf6',
     subs: [
+      { key: 'aum', label: '规模(AUM)', unit: '亿' },
+      { key: 'aum_growth_3m', label: '3月规模增长', unit: '%' },
+      { key: 'aum_growth_1y', label: '1年规模增长', unit: '%' },
+      { key: 'volume_trend', label: '成交量趋势', unit: '' },
+      { key: 'institutional_ratio', label: '机构持仓比例', unit: '%' },
       { key: 'institutional_change', label: '机构持仓变化', unit: '%' },
       { key: 'fund_flow_20d', label: '20日资金流向', unit: '亿' },
-      { key: 'aum', label: '规模', unit: '亿' },
-      { key: 'aum_growth_3m', label: '3月规模增长', unit: '%' },
     ],
   },
   {
@@ -89,10 +97,12 @@ const dimensionMeta = [
     icon: Globe,
     color: '#06b6d4',
     subs: [
-      { key: 'cycle_fit_score', label: '周期匹配度', unit: '分' },
-      { key: 'rate_environment_fit', label: '利率环境适配', unit: '分' },
-      { key: 'policy_support', label: '政策支持', unit: '分' },
-      { key: 'global_comparison', label: '全球比较', unit: '分' },
+      { key: 'cycle_position', label: '周期定位', unit: '' },
+      { key: 'cycle_fit_score', label: '周期匹配度', unit: '' },
+      { key: 'rate_environment_fit', label: '利率环境适配', unit: '' },
+      { key: 'policy_support', label: '政策支持', unit: '' },
+      { key: 'global_comparison', label: '全球比较', unit: '' },
+      { key: 'macro_risk_score', label: '宏观风险', unit: '' },
     ],
   },
 ];
