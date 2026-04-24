@@ -40,7 +40,7 @@ def _init_tushare():
 class TushareETFDataFetcher:
     """Tushare ETF数据获取器
 
-    使用tushare Pro接口获取A股ETF的各类行情数据，接口与ETFDataFetcher保持一致。
+    使tushare Pro接口获取A股ETF的各类行情数据，接口与ETFDataFetcher保持一致。
     支持：
     - 日线历史行情
     - 分钟级历史行情（通过通用行情接口）
@@ -53,6 +53,10 @@ class TushareETFDataFetcher:
         os.makedirs(self.cache_dir, exist_ok=True)
         _init_tushare()
         self.pro = pro
+        # ETF列表缓存
+        self._etf_list_cache = None
+        self._etf_list_cache_time = 0
+        self._etf_list_cache_ttl = 300  # 5分钟缓存
 
     # ────────────────────────────── 工具方法 ──────────────────────────────
 
@@ -60,17 +64,23 @@ class TushareETFDataFetcher:
     def _to_ts_code(code: str) -> str:
         """转换为tushare的ts_code格式
 
-        上海ETF: 1、5、6开头 -> code.SH
-        深圳ETF: 0、1、2、3开头 -> code.SZ
-        北京ETF: 8、9开头 -> code.BJ
+        上海ETF: 51, 56, 58 开头 -> code.SH
+        深圳ETF: 15, 16, 17, 18, 19 开头 -> code.SZ
+        北京ETF: 8, 9 开头 -> code.BJ
         """
         code = code.strip()
-        if code.startswith("5") or code.startswith("6") or code.startswith("1"):
-            return f"{code}.SH"
+        # 如果已经有后缀，直接返回
+        if "." in code:
+            return code
+        # 深圳ETF: 15/16/17/18/19 开头
+        if code.startswith("15") or code.startswith("16") or code.startswith("17") or code.startswith("18") or code.startswith("19"):
+            return f"{code}.SZ"
+        # 北京ETF: 8/9 开头
         elif code.startswith("8") or code.startswith("9"):
             return f"{code}.BJ"
+        # 其他默认上海
         else:
-            return f"{code}.SZ"
+            return f"{code}.SH"
 
     @staticmethod
     def _from_ts_code(ts_code: str) -> str:
@@ -101,7 +111,8 @@ class TushareETFDataFetcher:
             logger.info(f"[Tushare] 获取ETF {code} 日线数据: {start} ~ {end}")
             ts_code = self._to_ts_code(code)
 
-            df = self.pro.daily(ts_code=ts_code, start_date=start, end_date=end)
+            # 使用 fund_daily 接口获取ETF日线数据
+            df = self.pro.fund_daily(ts_code=ts_code, start_date=start, end_date=end)
             if df is None or df.empty:
                 logger.warning(f"[Tushare] ETF {code} 未返回日线数据")
                 return pd.DataFrame()
@@ -116,21 +127,21 @@ class TushareETFDataFetcher:
                     "close": "close",
                     "vol": "volume",
                     "amount": "amount",
+                    "change": "change",
+                    "pct_chg": "pct_change",
                 }
             )
             df["date"] = pd.to_datetime(df["date"])
             df = df.sort_values("date").reset_index(drop=True)
 
-            # 计算派生字段（amplitude, pct_change, change, turnover）
-            df["change"] = df["close"].diff()
-            df["pct_change"] = df["close"].pct_change() * 100
+            # 计算派生字段
             df["amplitude"] = (
                 (df["high"] - df["low"]) / df["low"].shift(1) * 100
             ).fillna(0)
-            # turnover（换手率）tushare daily接口不直接提供，设为空
+            # turnover（换手率）tushare不直接提供，设为0
             df["turnover"] = 0.0
 
-            # 选择并排序列，与akshare保持一致
+            # 确保列名与akshare保持一致
             result = df[
                 [
                     "date",
@@ -264,6 +275,14 @@ class TushareETFDataFetcher:
         pd.DataFrame
             ETF列表，包含代码、名称等字段，列名与akshare尽量一致
         """
+        import time
+
+        # 检查缓存是否有效
+        now = time.time()
+        if self._etf_list_cache is not None and (now - self._etf_list_cache_time) < self._etf_list_cache_ttl:
+            logger.info("[Tushare] 使用缓存的ETF列表")
+            return self._etf_list_cache.copy()
+
         try:
             logger.info("[Tushare] 获取ETF列表")
             # 获取场内基金（ETF）基础信息
@@ -284,12 +303,47 @@ class TushareETFDataFetcher:
             }
             df = df.rename(columns=rename_map)
 
-            # 添加tushare特有的列，便于前端识别
-            if "上市日期" in df.columns:
+            # 从 ts_code 提取纯数字代码
+            df["纯代码"] = df["代码"].str.split(".").str[0]
+
+            # 尝试用 akshare 获取实时行情补充价格数据
+            try:
+                import akshare as ak
+                spot_df = ak.fund_etf_spot_em()
+                if spot_df is not None and not spot_df.empty:
+                    # 合并实时行情
+                    spot_df = spot_df.rename(columns={
+                        "代码": "纯代码",
+                        "最新价": "最新价_spot",
+                        "涨跌幅": "涨跌幅_spot",
+                        "成交量": "成交量_spot",
+                        "成交额": "成交额_spot",
+                    })
+                    df = df.merge(
+                        spot_df[["纯代码", "最新价_spot", "涨跌幅_spot", "成交量_spot", "成交额_spot"]],
+                        on="纯代码",
+                        how="left"
+                    )
+                    df["最新价"] = df["最新价_spot"].fillna(0.0)
+                    df["涨跌幅"] = df["涨跌幅_spot"].fillna(0.0)
+                    df["成交量"] = df["成交量_spot"].fillna(0.0)
+                    df["成交额"] = df["成交额_spot"].fillna(0.0)
+                    df = df.drop(columns=["最新价_spot", "涨跌幅_spot", "成交量_spot", "成交额_spot", "纯代码"])
+                else:
+                    df["最新价"] = 0.0
+                    df["涨跌幅"] = 0.0
+                    df["成交量"] = 0.0
+                    df["成交额"] = 0.0
+            except Exception as e:
+                logger.warning(f"[Tushare] akshare 实时行情获取失败，使用空值: {e}")
                 df["最新价"] = 0.0
                 df["涨跌幅"] = 0.0
                 df["成交量"] = 0.0
                 df["成交额"] = 0.0
+
+            # 更新缓存
+            self._etf_list_cache = df.copy()
+            self._etf_list_cache_time = now
 
             logger.info(f"[Tushare] 成功获取ETF列表，共 {len(df)} 只")
             return df

@@ -1,13 +1,7 @@
 // ETF分析系统 API 服务
 // 调用后端接口获取真实数据
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api/v1';
-
-interface ApiResponse<T> {
-  success: boolean;
-  message: string;
-  data?: T;
-}
+const API_BASE = import.meta.env.VITE_API_BASE || '/etf/api/v1';
 
 interface ETFAnalysisResponse {
   success: boolean;

@@ -92,7 +92,13 @@ class SegmentAnalyzer:
                         # 未破坏，继续延伸
                         current_end = i
 
-            # 创建线段
+            # 创建线段（确保至少3笔）
+            bi_count = current_end - start_idx + 1
+            if bi_count < 3:
+                logger.warning(f"笔数量不足{bi_count}根，跳过线段创建")
+                start_idx = current_end + 1
+                continue
+
             segment = Segment(
                 start_bi=start_idx,
                 end_bi=current_end,
@@ -101,7 +107,7 @@ class SegmentAnalyzer:
                 end_price=round(bi_list[current_end].end_price, 3),
                 high=round(seg_high, 3),
                 low=round(seg_low, 3),
-                bi_count=current_end - start_idx + 1
+                bi_count=bi_count
             )
             segments.append(segment)
 

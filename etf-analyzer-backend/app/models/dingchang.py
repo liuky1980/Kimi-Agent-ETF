@@ -196,4 +196,4 @@ class ETFListResponse(BaseModel):
     """ETF列表响应"""
     count: int = Field(0, description="总数")
     etfs: List[ETFSimpleInfo] = Field(default_factory=list, description="ETF列表")
-    update_time: datetime = Field(default_factory=datetime.now, description="更
+    update_time: datetime = Field(default_factory=datetime.now, description="更新时间")
