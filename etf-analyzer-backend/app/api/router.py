@@ -39,8 +39,16 @@ router = APIRouter(prefix="/api/v1")
 
 # 全局引擎实例（单例）
 chanlun_engine = ChanlunEngine()
-dingchang_engine = DingChangEngine()
 data_fetcher = get_data_fetcher()
+dingchang_engine = DingChangEngine(fetcher=data_fetcher)
+
+
+# ────────────────────────────── 健康检查 ──────────────────────────────
+
+@router.get("/health")
+async def health_check():
+    """健康检查"""
+    return {"status": "ok", "version": settings.APP_VERSION}
 
 
 # ────────────────────────────── 核心分析接口 ──────────────────────────────

@@ -35,7 +35,20 @@ function normalizeDingChang(raw: Record<string, unknown>): DingChangResult | nul
   const get = (k: string) => (raw[k] !== undefined ? raw[k] : raw[k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]);
 
   const dimsRaw = get('dimensions') as Record<string, unknown> || {};
-  const getDim = (k: string) => (dimsRaw[k] || dimsRaw[k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]) as Record<string, number> | undefined;
+
+  // 维度键名映射：前端 camelCase → 后端实际字段名
+  const dimKeyMap: Record<string, string> = {
+    dividendQuality: 'dividend',
+    valuationSafety: 'valuation',
+    profitability: 'profitability',
+    capitalFlow: 'capital_flow',
+    macroFit: 'macro',
+  };
+
+  const getDim = (k: string) => {
+    const mappedKey = dimKeyMap[k] || k;
+    return (dimsRaw[mappedKey] || dimsRaw[mappedKey.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]) as Record<string, number> | undefined;
+  };
 
   const getSubDim = (dimKey: string, subKey: string): number => {
     const dim = getDim(dimKey);

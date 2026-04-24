@@ -16,7 +16,7 @@
 """
 
 import logging
-from typing import Dict
+from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -36,7 +36,7 @@ class MacroAdaptation:
     def __init__(self):
         pass
 
-    def score(self, etf_code: str, df_daily: pd.DataFrame) -> MacroScore:
+    def score(self, etf_code: str, df_daily: pd.DataFrame, real_data: Optional[Dict] = None) -> MacroScore:
         """宏观适配评分主函数
 
         Parameters
@@ -45,6 +45,8 @@ class MacroAdaptation:
             ETF代码
         df_daily : pd.DataFrame
             日线数据
+        real_data : dict, optional
+            真实宏观数据（从tushare获取）
 
         Returns
         -------
@@ -59,11 +61,18 @@ class MacroAdaptation:
         if len(returns) < 60:
             return self._insufficient_data_score()
 
+        # 优先使用真实宏观数据（shibor利率）
+        use_real_macro = real_data and real_data.get("shibor_1y", 0) > 0
+
         # 1. 周期定位
         cycle_position, cycle_fit_score = self._determine_cycle_position(close_prices, returns)
 
         # 2. 利率环境适配
-        rate_environment_fit = self._assess_rate_environment(close_prices, returns)
+        if use_real_macro:
+            rate_environment_fit = self._assess_rate_environment_real(real_data)
+            logger.info(f"[MacroAdaptation] 使用真实利率数据: shibor_1y={real_data.get('shibor_1y')}")
+        else:
+            rate_environment_fit = self._assess_rate_environment(close_prices, returns)
 
         # 3. 政策支持度估算
         policy_support = self._estimate_policy_support(close_prices, returns)
@@ -83,7 +92,7 @@ class MacroAdaptation:
             "macro_risk": (1 - macro_risk_score) * 100,  # 风险越低分越高
         }
 
-        # 综合评分（宏观适配 = 周期适配 + 利率 + 政策 + 全球比较 - 风险）
+        # 综合评分
         composite = (
             sub_scores["cycle_fit"] * 0.30 +
             sub_scores["rate_environment"] * 0.25 +
@@ -91,6 +100,13 @@ class MacroAdaptation:
             sub_scores["global_comparison"] * 0.15 +
             sub_scores["macro_risk"] * 0.10
         )
+
+        desc = f"宏观适配: 周期定位 '{cycle_position}', 适配度 {cycle_fit_score:.2f}, "
+        if use_real_macro:
+            desc += f"真实利率环境 {rate_environment_fit:.2f} (shibor_1y={real_data.get('shibor_1y')}), "
+        else:
+            desc += f"估算利率环境 {rate_environment_fit:.2f}, "
+        desc += f"政策支持 {policy_support:.2f}"
 
         return MacroScore(
             score=round(min(100, max(0, composite)), 1),
@@ -101,9 +117,33 @@ class MacroAdaptation:
             global_comparison=round(global_comparison, 3),
             macro_risk_score=round(macro_risk_score, 3),
             sub_scores=sub_scores,
-            description=f"宏观适配: 周期定位 '{cycle_position}', 适配度 {cycle_fit_score:.2f}, "
-                       f"利率环境 {rate_environment_fit:.2f}, 政策支持 {policy_support:.2f}"
+            description=desc
         )
+
+    def _assess_rate_environment_real(self, real_data: Dict) -> float:
+        """基于真实利率数据评估利率环境适配度
+
+        使用shibor数据评估当前利率环境。
+        """
+        rate_1y = real_data.get("shibor_1y", 0)
+        rate_trend = real_data.get("rate_trend", 0)
+        rate_env = real_data.get("rate_environment", "medium")
+
+        # 基于利率水平的基础适配度
+        if rate_env == "low":
+            base_fit = 0.80  # 低利率利好权益
+        elif rate_env == "medium":
+            base_fit = 0.60
+        else:
+            base_fit = 0.40  # 高利率不利
+
+        # 利率趋势调整
+        if rate_trend < -0.1:
+            base_fit += 0.15  # 降息趋势
+        elif rate_trend > 0.1:
+            base_fit -= 0.15  # 加息趋势
+
+        return round(max(0.1, min(1.0, base_fit)), 3)
 
     def _determine_cycle_position(self, close_prices: pd.Series, returns: pd.Series) -> tuple:
         """确定周期定位

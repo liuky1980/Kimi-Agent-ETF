@@ -13,7 +13,7 @@
 """
 
 import logging
-from typing import Dict
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -33,7 +33,7 @@ class CapitalFlow:
     def __init__(self):
         pass
 
-    def score(self, etf_code: str, df_daily: pd.DataFrame) -> CapitalFlowScore:
+    def score(self, etf_code: str, df_daily: pd.DataFrame, real_data: Optional[Dict] = None) -> CapitalFlowScore:
         """资金驱动评分主函数
 
         Parameters
@@ -42,6 +42,8 @@ class CapitalFlow:
             ETF代码
         df_daily : pd.DataFrame
             日线数据（需包含 close, volume, amount, turnover 等列）
+        real_data : dict, optional
+            真实资金流数据（从tushare获取）
 
         Returns
         -------
@@ -58,23 +60,34 @@ class CapitalFlow:
         if len(close_prices) < 20:
             return self._insufficient_data_score()
 
-        # 1. AUM估算（基于成交额）
-        aum_estimate = self._estimate_aum(amount)
+        # 优先使用真实AUM数据
+        real_aum = 0.0
+        aum_source = "成交额估算"
+        if real_data and real_data.get("aum", 0) > 0:
+            real_aum = real_data["aum"]
+            aum_source = real_data.get("aum_source", "真实数据")
+            logger.info(f"[CapitalFlow] 使用真实AUM {real_aum:.2f}亿 (来源: {aum_source})")
 
-        # 2. AUM增长趋势
+        # 1. AUM（优先真实数据）
+        if real_aum > 0:
+            aum_estimate = real_aum * 1e8  # 转回元
+        else:
+            aum_estimate = self._estimate_aum(amount)
+
+        # 2. AUM增长趋势（真实数据无法直接获取增长，仍用成交额估算）
         aum_growth_3m = self._calc_aum_growth(amount, period=60)
         aum_growth_1y = self._calc_aum_growth(amount, period=252)
 
         # 3. 成交量趋势
         volume_trend = self._calc_volume_trend(volume)
 
-        # 4. 机构持仓占比估算（基于大单特征）
+        # 4. 机构持仓占比估算
         institutional_ratio = self._estimate_institutional_ratio(close_prices, volume)
 
         # 5. 机构持仓变化
         institutional_change = self._estimate_institutional_change(volume)
 
-        # 6. 资金流向估算（近20日）
+        # 6. 资金流向估算
         fund_flow_20d = self._estimate_fund_flow(close_prices, volume, period=20)
 
         # 子得分
@@ -97,9 +110,14 @@ class CapitalFlow:
             sub_scores["fund_flow_20d"] * 0.20
         )
 
+        desc = (f"资金驱动: AUM={aum_estimate/1e8:.1f}亿(来源: {aum_source}), "
+                f"3月AUM增长 {aum_growth_3m*100:.1f}%, "
+                f"成交量趋势 {volume_trend:+.3f}, "
+                f"近20日资金流向 {fund_flow_20d:+.4f}")
+
         return CapitalFlowScore(
             score=round(min(100, max(0, composite)), 1),
-            aum=round(aum_estimate / 1e8, 2),  # 转换为亿元
+            aum=round(aum_estimate / 1e8, 2),
             aum_growth_3m=round(aum_growth_3m * 100, 2),
             aum_growth_1y=round(aum_growth_1y * 100, 2),
             volume_trend=round(volume_trend, 3),
@@ -107,9 +125,7 @@ class CapitalFlow:
             institutional_change=round(institutional_change * 100, 2),
             fund_flow_20d=round(fund_flow_20d, 4),
             sub_scores=sub_scores,
-            description=f"资金驱动: 3月AUM增长 {aum_growth_3m*100:.1f}%, "
-                       f"成交量趋势 {volume_trend:+.3f}, "
-                       f"近20日资金流向 {fund_flow_20d:+.4f}"
+            description=desc
         )
 
     def _estimate_aum(self, amount: pd.Series) -> float:

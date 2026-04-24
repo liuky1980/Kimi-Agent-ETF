@@ -33,7 +33,7 @@ class ValuationSafety:
     def __init__(self):
         pass
 
-    def score(self, etf_code: str, df_daily: pd.DataFrame) -> ValuationScore:
+    def score(self, etf_code: str, df_daily: pd.DataFrame, real_data: Optional[Dict] = None) -> ValuationScore:
         """估值安全评分主函数
 
         Parameters
@@ -42,6 +42,8 @@ class ValuationSafety:
             ETF代码
         df_daily : pd.DataFrame
             日线数据（需包含 close, high, low, volume 等列）
+        real_data : dict, optional
+            真实估值数据（从tushare获取）
 
         Returns
         -------
@@ -55,7 +57,76 @@ class ValuationSafety:
         if len(close_prices) < 60:
             return self._insufficient_data_score()
 
-        # 计算PE近似（基于价格与移动平均的关系作为估值代理）
+        # 优先使用真实估值数据
+        use_real = real_data and (real_data.get("pe_ttm", 0) > 0 or real_data.get("pb", 0) > 0)
+
+        if use_real:
+            logger.info(f"[ValuationSafety] 使用真实估值数据: PE={real_data.get('pe_ttm')}, PB={real_data.get('pb')}")
+            return self._score_with_real_data(etf_code, df_daily, real_data)
+
+        # 回退到价格估算模式
+        return self._score_with_estimated_data(etf_code, df_daily)
+
+    def _score_with_real_data(self, etf_code: str, df_daily: pd.DataFrame, real_data: Dict) -> ValuationScore:
+        """使用真实估值数据评分"""
+        close_prices = df_daily['close']
+
+        pe_ttm = real_data.get("pe_ttm", 0)
+        pb = real_data.get("pb", 0)
+        pe_percentile = real_data.get("pe_percentile", 50.0)
+        pb_percentile = real_data.get("pb_percentile", 50.0)
+        div_yield = real_data.get("dividend_yield", 0)
+
+        # 利差（假设3%无风险利率）
+        risk_free_rate = 0.03
+        earnings_yield = 1 / pe_ttm * 100 if pe_ttm > 0 else 0
+        spread = earnings_yield - risk_free_rate * 100
+
+        # 净值折溢价估算
+        nav_premium = self._estimate_nav_premium(close_prices)
+
+        # 各子项评分（估值越低 → 分数越高）
+        sub_scores = {
+            "pe_percentile_score": 100 - pe_percentile,
+            "pb_percentile_score": 100 - pb_percentile,
+            "peg_score": min(100, max(0, 100 - (pe_ttm / max(earnings_yield, 1)) * 20)) if pe_ttm > 0 and earnings_yield > 0 else 50,
+            "spread_score": min(100, max(0, 50 + spread * 5)),
+            "nav_premium_score": min(100, max(0, 100 - abs(nav_premium) * 2)),
+            "price_vs_ma": self._price_vs_moving_average_score(close_prices),
+        }
+
+        # 综合评分
+        composite = (
+            sub_scores["pe_percentile_score"] * 0.30 +
+            sub_scores["pb_percentile_score"] * 0.25 +
+            sub_scores["peg_score"] * 0.15 +
+            sub_scores["spread_score"] * 0.10 +
+            sub_scores["nav_premium_score"] * 0.10 +
+            sub_scores["price_vs_ma"] * 0.10
+        )
+
+        source = real_data.get("data_source", "真实数据")
+
+        return ValuationScore(
+            score=round(min(100, max(0, composite)), 1),
+            pe_ttm=round(pe_ttm, 1),
+            pe_percentile=round(pe_percentile, 1),
+            pb=round(pb, 2),
+            pb_percentile=round(pb_percentile, 1),
+            peg=round(pe_ttm / max(earnings_yield, 1), 2) if pe_ttm > 0 and earnings_yield > 0 else 0,
+            spread_risk_free=round(spread, 2),
+            nav_discount_premium=round(nav_premium, 2),
+            valuation_method=f"真实数据估值法（{source}）",
+            sub_scores=sub_scores,
+            description=f"真实估值评分: PE百分位 {pe_percentile:.1f}%, PB百分位 {pb_percentile:.1f}%, "
+                       f"PE_TTM={pe_ttm:.1f}, PB={pb:.2f} (来源: {source})"
+        )
+
+    def _score_with_estimated_data(self, etf_code: str, df_daily: pd.DataFrame) -> ValuationScore:
+        """使用价格估算的估值数据评分（回退模式）"""
+        close_prices = df_daily['close']
+
+        # 计算PE近似
         pe_approx = self._estimate_pe(close_prices)
 
         # 计算价格历史百分位
@@ -68,17 +139,17 @@ class ValuationSafety:
         # PEG近似
         peg_approx = self._estimate_peg(close_prices)
 
-        # 净值折溢价估算（基于价格与均线的偏离）
+        # 净值折溢价估算
         nav_premium = self._estimate_nav_premium(close_prices)
 
-        # 利差估算（假设3%无风险利率）
+        # 利差估算
         risk_free_rate = 0.03
         estimated_yield = pe_approx / 100 * risk_free_rate if pe_approx > 0 else 0
         spread = estimated_yield - risk_free_rate
 
-        # 各子项评分（估值越低 → 分数越高）
+        # 各子项评分
         sub_scores = {
-            "pe_percentile_score": 100 - pe_percentile,  # 百分位越低分数越高
+            "pe_percentile_score": 100 - pe_percentile,
             "pb_percentile_score": 100 - pb_percentile,
             "peg_score": min(100, max(0, 100 - peg_approx * 20)) if peg_approx > 0 else 50,
             "spread_score": min(100, max(0, 50 + spread * 500)),
@@ -86,7 +157,7 @@ class ValuationSafety:
             "price_vs_ma": self._price_vs_moving_average_score(close_prices),
         }
 
-        # 综合评分（使用历史百分位为主）
+        # 综合评分
         composite = (
             sub_scores["pe_percentile_score"] * 0.30 +
             sub_scores["pb_percentile_score"] * 0.25 +
@@ -96,7 +167,6 @@ class ValuationSafety:
             sub_scores["price_vs_ma"] * 0.10
         )
 
-        # 确定估值方法说明
         valuation_method = self._determine_valuation_method(etf_code, close_prices)
 
         return ValuationScore(
@@ -108,34 +178,29 @@ class ValuationSafety:
             peg=round(peg_approx, 2),
             spread_risk_free=round(spread * 100, 2),
             nav_discount_premium=round(nav_premium, 2),
-            valuation_method=valuation_method,
+            valuation_method=f"价格估算法（{valuation_method}）",
             sub_scores=sub_scores,
-            description=f"估值安全评分: PE百分位 {pe_percentile:.1f}%, PB百分位 {pb_percentile:.1f}%, "
-                       f"估值方法: {valuation_method}"
+            description=f"价格估算评分: PE百分位 {pe_percentile:.1f}%, PB百分位 {pb_percentile:.1f}%"
         )
 
     def _estimate_pe(self, close_prices: pd.Series) -> float:
-        """估算PE-TTM
+        """估算PE（基于价格趋势的粗略估算）"""
+        returns = close_prices.pct_change().dropna()
+        if len(returns) < 20:
+            return 15.0  # 默认PE
 
-        使用价格与60日均线的偏离程度作为PE的代理指标。
-        """
-        ma60 = close_prices.rolling(60).mean().iloc[-1]
-        current = close_prices.iloc[-1]
+        annual_return = returns.mean() * 252
+        if annual_return > 0.01:  # 至少1%的年化收益
+            pe = 1 / annual_return
+        else:
+            pe = 15.0  # 默认PE
 
-        if ma60 <= 0:
-            return 15.0  # 默认值
-
-        # 价格相对均线的比例 → PE代理
-        price_to_ma = current / ma60
-        # 映射到合理PE范围 (5-40)
-        pe_proxy = 15 + (price_to_ma - 1) * 30
-        return max(5.0, min(50.0, pe_proxy))
+        return max(5.0, min(50.0, pe))
 
     def _estimate_pb(self, close_prices: pd.Series) -> float:
-        """估算PB"""
+        """估算PB（基于PE和ROE估算）"""
         pe = self._estimate_pe(close_prices)
-        # 简化：假设ROE约12%，PB ≈ PE × ROE
-        roe_estimate = 0.12
+        roe_estimate = 0.12  # 假设ROE约12%
         pb = pe * roe_estimate
         return max(0.5, min(10.0, pb))
 

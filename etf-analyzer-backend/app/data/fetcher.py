@@ -541,6 +541,21 @@ class UnifiedDataFetcher:
     def get_multi_timeframe(self, code: str) -> Dict[str, pd.DataFrame]:
         return self._call_with_fallback('get_multi_timeframe', code)
 
+    def get_etf_fundamental_data(self, etf_code: str) -> Dict:
+        """获取ETF全部基本面真实数据（仅主数据源支持）
+
+        目前仅Tushare数据源支持获取基本面数据，
+        如果主数据源不是Tushare或不支持此方法，返回空字典。
+        """
+        if self.primary is not None and hasattr(self.primary, 'get_etf_fundamental_data'):
+            try:
+                result = self.primary.get_etf_fundamental_data(etf_code)
+                return self._tag_result(result, self.primary_source_name)
+            except Exception as e:
+                logger.warning(f"主数据源 {self.primary_source_name} 获取基本面数据失败: {e}")
+                return {}
+        return {}
+
 
 # ────────────────────────────── 统一数据获取入口（工厂模式） ──────────────────────────────
 

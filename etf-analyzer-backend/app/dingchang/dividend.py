@@ -35,7 +35,7 @@ class DividendQuality:
     def __init__(self):
         pass
 
-    def score(self, etf_code: str, df_daily: pd.DataFrame) -> DividendScore:
+    def score(self, etf_code: str, df_daily: pd.DataFrame, real_data: Optional[Dict] = None) -> DividendScore:
         """股息质量评分主函数
 
         Parameters
@@ -44,6 +44,8 @@ class DividendQuality:
             ETF代码
         df_daily : pd.DataFrame
             日线数据
+        real_data : dict, optional
+            真实基本面数据（从tushare获取）
 
         Returns
         -------
@@ -56,12 +58,12 @@ class DividendQuality:
         etf_type = self._classify_etf_type(etf_code, df_daily)
 
         if etf_type == "income":
-            return self._score_income_etf(etf_code, df_daily)
+            return self._score_income_etf(etf_code, df_daily, real_data)
         elif etf_type == "commodity":
             return self._score_commodity_etf(etf_code, df_daily)
         else:
             # 成长型或其他类型：用资本回报效率替代
-            return self._score_growth_etf(etf_code, df_daily)
+            return self._score_growth_etf(etf_code, df_daily, real_data)
 
     def _classify_etf_type(self, etf_code: str, df_daily: pd.DataFrame) -> str:
         """基于ETF名称和历史数据分类ETF类型
@@ -92,25 +94,36 @@ class DividendQuality:
         # 默认按成长型评估（更通用的方式）
         return "growth"
 
-    def _score_income_etf(self, etf_code: str, df_daily: pd.DataFrame) -> DividendScore:
+    def _score_income_etf(self, etf_code: str, df_daily: pd.DataFrame, real_data: Optional[Dict] = None) -> DividendScore:
         """收益型ETF评分（有分红）"""
         close_prices = df_daily['close']
 
         # 计算总回报
         total_return = (close_prices.iloc[-1] / close_prices.iloc[0] - 1) if close_prices.iloc[0] > 0 else 0
 
-        # 年化收益率（模拟股息率估算）
+        # 年化收益率
         years = len(df_daily) / 252
         if years > 0 and close_prices.iloc[0] > 0:
             cagr = (close_prices.iloc[-1] / close_prices.iloc[0]) ** (1 / years) - 1
         else:
             cagr = 0
 
+        # 优先使用真实股息率数据
+        real_dividend_yield = 0.0
+        real_yield_source = "价格估算"
+        if real_data and real_data.get("dividend_yield", 0) > 0:
+            real_dividend_yield = real_data["dividend_yield"]
+            real_yield_source = real_data.get("yield_source", "真实数据")
+            logger.info(f"[DividendQuality] 使用真实股息率 {real_dividend_yield:.2f}% (来源: {real_yield_source})")
+
         # 估算股息率（简化：假设价格增长主要来自分红再投资）
         estimated_yield = max(0, cagr * 0.4) * 100  # 假设40%回报来自分红
 
+        # 如果有真实数据，用真实股息率；否则用估算值
+        dividend_yield = real_dividend_yield if real_dividend_yield > 0 else estimated_yield
+
         # 5年平均（简化用全部历史替代）
-        yield_5y = estimated_yield
+        yield_5y = dividend_yield
 
         # 分红持续性评分（基于收益稳定性）
         monthly_returns = close_prices.pct_change(periods=20).dropna()
@@ -118,14 +131,14 @@ class DividendQuality:
         payout_consistency = positive_months
 
         # 分红质量评分
-        distribution_quality = min(1.0, estimated_yield / 5.0) if estimated_yield > 0 else 0.0
+        distribution_quality = min(1.0, dividend_yield / 5.0) if dividend_yield > 0 else 0.0
 
         # 资本回报效率
         capital_return_efficiency = min(1.0, max(0, cagr * 100) / 10.0)
 
         # 综合评分
         sub_scores = {
-            "dividend_yield": min(100, estimated_yield * 10),
+            "dividend_yield": min(100, dividend_yield * 10),
             "yield_5y_avg": min(100, yield_5y * 8),
             "payout_consistency": payout_consistency * 100,
             "distribution_quality": distribution_quality * 100,
@@ -140,18 +153,22 @@ class DividendQuality:
             sub_scores["capital_return"] * 0.15
         )
 
+        desc = f"收益型ETF评估，{('真实' if real_dividend_yield > 0 else '估算')}股息率 {dividend_yield:.2f}%，分红持续性 {payout_consistency:.2f}"
+        if real_dividend_yield > 0:
+            desc += f" (来源: {real_yield_source})"
+
         return DividendScore(
             score=round(min(100, max(0, composite)), 1),
-            dividend_yield=round(estimated_yield, 2),
+            dividend_yield=round(dividend_yield, 2),
             yield_5y_avg=round(yield_5y, 2),
             payout_consistency=round(payout_consistency, 3),
             distribution_quality=round(distribution_quality, 3),
             capital_return_efficiency=round(capital_return_efficiency, 3),
             sub_scores=sub_scores,
-            description=f"收益型ETF评估，估算股息率 {estimated_yield:.2f}%，分红持续性 {payout_consistency:.2f}"
+            description=desc
         )
 
-    def _score_growth_etf(self, etf_code: str, df_daily: pd.DataFrame) -> DividendScore:
+    def _score_growth_etf(self, etf_code: str, df_daily: pd.DataFrame, real_data: Optional[Dict] = None) -> DividendScore:
         """成长型ETF评分（资本回报效率替代）"""
         close_prices = df_daily['close']
 
@@ -185,6 +202,11 @@ class DividendQuality:
         # 资本回报效率
         capital_return_efficiency = min(1.0, max(0, sharpe_approx + 1) / 2.0)
 
+        # 如果有真实股息率数据（成长型ETF可能也有），记录一下
+        real_dividend_yield = 0.0
+        if real_data and real_data.get("dividend_yield", 0) > 0:
+            real_dividend_yield = real_data["dividend_yield"]
+
         # 综合子得分
         sub_scores = {
             "total_return": min(100, max(0, total_return)),
@@ -202,16 +224,19 @@ class DividendQuality:
             sub_scores["capital_return_efficiency"] * 0.15
         )
 
+        desc = f"成长型ETF评估，年化收益率 {cagr:.1f}%，夏普比率近似 {sharpe_approx:.2f}"
+        if real_dividend_yield > 0:
+            desc += f"，真实股息率 {real_dividend_yield:.2f}%"
+
         return DividendScore(
             score=round(min(100, max(0, composite)), 1),
-            dividend_yield=0.0,  # 成长型无分红
+            dividend_yield=round(real_dividend_yield, 2),
             yield_5y_avg=0.0,
             payout_consistency=0.0,
             distribution_quality=0.0,
             capital_return_efficiency=round(capital_return_efficiency, 3),
             sub_scores=sub_scores,
-            description=f"成长型ETF评估，年化收益率 {cagr:.1f}%，夏普比率近似 {sharpe_approx:.2f}，"
-                       f"最大回撤 {max_drawdown*100:.1f}%，资本回报效率 {capital_return_efficiency:.2f}"
+            description=desc
         )
 
     def _score_commodity_etf(self, etf_code: str, df_daily: pd.DataFrame) -> DividendScore:

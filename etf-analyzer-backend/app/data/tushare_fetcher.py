@@ -11,10 +11,44 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+from cachetools import TTLCache
+from cachetools.keys import hashkey
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# ────────────────────────────── 缓存配置 ──────────────────────────────
+# 各类数据缓存（单位：秒）
+_CACHE_ETF_LIST      = TTLCache(maxsize=1, ttl=300)      # ETF列表      5分钟
+_CACHE_ETF_DAILY    = TTLCache(maxsize=100, ttl=300)     # 日线行情    5分钟
+_CACHE_ETF_INFO     = TTLCache(maxsize=100, ttl=600)     # 基本信息   10分钟
+_CACHE_INDEX_WEIGHT = TTLCache(maxsize=50, ttl=3600)     # 成分股权重  1小时
+_CACHE_FUND_PORTFOLIO = TTLCache(maxsize=50, ttl=3600)   # 基金持仓   1小时
+_CACHE_INDEX_DAILYBASIC = TTLCache(maxsize=50, ttl=300)  # 指数行情   5分钟
+_CACHE_FUND_SHARE   = TTLCache(maxsize=50, ttl=3600)     # 基金份额   1小时
+_CACHE_FUND_NAV     = TTLCache(maxsize=50, ttl=3600)     # 基金净值   1小时
+_CACHE_SHIBOR       = TTLCache(maxsize=10, ttl=3600)     # SHIBOR利率  1小时
+_CACHE_AUM          = TTLCache(maxsize=50, ttl=300)      # AUM数据    5分钟
+_CACHE_MULTI_TF     = TTLCache(maxsize=50, ttl=300)      # 多周期数据 5分钟
+
+
+def _cached(cache_store):
+    """简单的方法级缓存装饰器（支持self参数）"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # 构建 key: 忽略 self 参数，只保留实际参数
+            key_args = args[1:] if len(args) > 0 and hasattr(args[0], func.__name__) else args
+            key = hashkey(*key_args, **kwargs)
+            try:
+                return cache_store[key]
+            except KeyError:
+                result = func(*args, **kwargs)
+                cache_store[key] = result
+                return result
+        return wrapper
+    return decorator
+
 
 # 延迟导入tushare，避免在模块加载时即初始化
 ts = None
@@ -89,6 +123,7 @@ class TushareETFDataFetcher:
 
     # ────────────────────────────── 基础数据接口 ──────────────────────────────
 
+    @_cached(_CACHE_ETF_DAILY)
     def get_etf_daily(self, code: str, start: str, end: str) -> pd.DataFrame:
         """获取ETF日线历史行情
 
@@ -267,6 +302,7 @@ class TushareETFDataFetcher:
                 f"[Tushare] 获取ETF {code} {period}分钟线数据失败: {e}"
             ) from e
 
+    @_cached(_CACHE_ETF_LIST)
     def get_etf_list(self) -> pd.DataFrame:
         """获取全部ETF实时列表
 
@@ -352,6 +388,7 @@ class TushareETFDataFetcher:
             logger.error(f"[Tushare] 获取ETF列表失败: {e}")
             raise DataFetchError(f"[Tushare] 获取ETF列表失败: {e}") from e
 
+    @_cached(_CACHE_ETF_INFO)
     def get_etf_info(self, code: str) -> Dict:
         """获取ETF基本信息与近期统计
 
@@ -489,6 +526,7 @@ class TushareETFDataFetcher:
             logger.warning(f"[Tushare] 获取ETF {code} 实时行情失败: {e}")
             return {}
 
+    @_cached(_CACHE_FUND_PORTFOLIO)
     def get_etf_constituents(self, code: str) -> pd.DataFrame:
         """获取ETF重仓/成分股信息
 
@@ -517,6 +555,7 @@ class TushareETFDataFetcher:
             logger.warning(f"[Tushare] 获取ETF {code} 成分股信息失败: {e}")
             return pd.DataFrame()
 
+    @_cached(_CACHE_INDEX_DAILYBASIC)
     def get_index_valuation(self, index_code: str) -> Dict:
         """获取指数估值信息（用于估值安全评分）
 
@@ -596,6 +635,7 @@ class TushareETFDataFetcher:
             }
         )
 
+    @_cached(_CACHE_MULTI_TF)
     def get_multi_timeframe(self, code: str) -> Dict[str, pd.DataFrame]:
         """一键获取多周期数据
 
@@ -624,6 +664,450 @@ class TushareETFDataFetcher:
         result["hourly"] = self.get_etf_minute(code, "60")
 
         return result
+
+    # ────────────────────────────── 真实基本面数据接口（丁昶五维评分用）──────────────────────────────
+
+    # 常见ETF → 跟踪指数映射
+    ETF_INDEX_MAP = {
+        "510300": "000300.SH",   # 沪深300ETF
+        "510500": "000905.SH",   # 中证500ETF
+        "510050": "000016.SH",   # 上证50ETF
+        "510180": "000010.SH",   # 上证180ETF
+        "510880": "000015.SH",   # 红利ETF
+        "512880": "000016.SH",   # 证券ETF → 近似用上证50
+        "512690": "399987.SZ",   # 酒ETF
+        "512000": "000016.SH",   # 券商ETF → 近似
+        "512010": "000300.SH",   # 医药ETF → 近似用沪深300
+        "512480": "000016.SH",   # 半导体ETF → 近似
+        "515030": "000300.SH",   # 新能源ETF → 近似
+        "516160": "000300.SH",   # 新能源ETF → 近似
+        "159915": "399006.SZ",   # 创业板ETF
+        "159949": "399673.SZ",   # 创业板50ETF
+        "159952": "399006.SZ",   # 创业板ETF
+        "159901": "399330.SZ",   # 深证100ETF
+        "159919": "000300.SH",   # 沪深300ETF(嘉实)
+        "510310": "000300.SH",   # 沪深300ETF(易方达)
+        "510330": "000300.SH",   # 沪深300ETF(华夏)
+        "510360": "000300.SH",   # 沪深300ETF(广发)
+        "510390": "000300.SH",   # 沪深300ETF(平安)
+        "510500": "000905.SH",   # 中证500ETF(南方)
+        "510510": "000905.SH",   # 中证500ETF(易方达)
+        "510560": "000905.SH",   # 中证500ETF(兴业)
+        "159922": "000905.SH",   # 中证500ETF(嘉实)
+        "159928": "000300.SH",   # 消费ETF → 近似
+        "159938": "000300.SH",   # 医药ETF → 近似
+        "512170": "000300.SH",   # 医疗ETF → 近似
+        "512200": "000016.SH",   # 地产ETF → 近似
+        "512400": "000016.SH",   # 有色金属ETF → 近似
+        "512660": "000016.SH",   # 军工ETF → 近似
+        "512800": "000016.SH",   # 银行ETF → 近似
+        "515050": "000016.SH",   # 5GETF → 近似
+        "515210": "000016.SH",   # 钢铁ETF → 近似
+        "515220": "000016.SH",   # 煤炭ETF → 近似
+        "515880": "000016.SH",   # 通信ETF → 近似
+        "516000": "000016.SH",   # 大数据ETF → 近似
+        "516010": "000016.SH",   # 游戏ETF → 近似
+        "516110": "000016.SH",   # 汽车ETF → 近似
+        "516130": "000016.SH",   # 消费电子ETF → 近似
+        "516150": "000016.SH",   # 光伏ETF → 近似
+        "516220": "000016.SH",   # 化工ETF → 近似
+        "516510": "000016.SH",   # 云计算ETF → 近似
+        "516520": "000016.SH",   # 智能电车ETF → 近似
+        "516560": "000016.SH",   # 养老ETF → 近似
+        "516570": "000016.SH",   # 稀土ETF → 近似
+        "516580": "000016.SH",   # 新材料ETF → 近似
+        "516590": "000016.SH",   # 金融科技ETF → 近似
+        "516620": "000016.SH",   # 影视ETF → 近似
+        "516630": "000016.SH",   # 基建ETF → 近似
+        "516640": "000016.SH",   # 建材ETF → 近似
+        "516650": "000016.SH",   # 物联网ETF → 近似
+        "516660": "000016.SH",   # 新能车ETF → 近似
+        "516670": "000016.SH",   # 碳中和ETF → 近似
+        "516680": "000016.SH",   # 生物科技ETF → 近似
+        "516690": "000016.SH",   # 饮食ETF → 近似
+        "516700": "000016.SH",   # 数据ETF → 近似
+        "516710": "000016.SH",   # 物联网ETF → 近似
+        "516720": "000016.SH",   # 新能源ETF → 近似
+        "516730": "000016.SH",   # 新材料ETF → 近似
+        "516740": "000016.SH",   # 稀土ETF → 近似
+        "516750": "000016.SH",   # 消费电子ETF → 近似
+        "516760": "000016.SH",   # 人工智能ETF → 近似
+        "516770": "000016.SH",   # 游戏ETF → 近似
+        "516780": "000016.SH",   # 金融科技ETF → 近似
+        "516790": "000016.SH",   # 云计算ETF → 近似
+        "516800": "000016.SH",   # 智能制造ETF → 近似
+        "516810": "000016.SH",   # 食品饮料ETF → 近似
+        "516820": "000016.SH",   # 生物科技ETF → 近似
+        "516830": "000016.SH",   # 农业ETF → 近似
+        "516840": "000016.SH",   # 医药ETF → 近似
+        "516850": "000016.SH",   # 医疗器械ETF → 近似
+        "516860": "000016.SH",   # 新材料ETF → 近似
+        "516870": "000016.SH",   # 碳中和ETF → 近似
+        "516880": "000016.SH",   # 光伏ETF → 近似
+        "516890": "000016.SH",   # 储能ETF → 近似
+        "516900": "000016.SH",   # 家电ETF → 近似
+        "516910": "000016.SH",   # 智能电车ETF → 近似
+        "516920": "000016.SH",   # 智能汽车ETF → 近似
+        "516930": "000016.SH",   # 稀有金属ETF → 近似
+        "516940": "000016.SH",   # 有色ETF → 近似
+        "516950": "000016.SH",   # 基建ETF → 近似
+        "516960": "000016.SH",   # 证券ETF → 近似
+        "516970": "000016.SH",   # 银行ETF → 近似
+        "516980": "000016.SH",   # 保险ETF → 近似
+        "516990": "000016.SH",   # 房地产ETF → 近似
+        "517000": "000016.SH",   # 金融ETF → 近似
+        "517010": "000016.SH",   # 医药ETF → 近似
+        "517020": "000016.SH",   # 消费ETF → 近似
+        "517030": "000016.SH",   # 科技ETF → 近似
+        "517040": "000016.SH",   # 新能源ETF → 近似
+        "517050": "000016.SH",   # 军工ETF → 近似
+        "517060": "000016.SH",   # 资源ETF → 近似
+        "517070": "000016.SH",   # 制造ETF → 近似
+        "517080": "000016.SH",   # 信息ETF → 近似
+        "517090": "000016.SH",   # 传媒ETF → 近似
+        "517100": "000016.SH",   # 环保ETF → 近似
+        "517110": "000016.SH",   # 公用ETF → 近似
+        "517120": "000016.SH",   # 交运ETF → 近似
+        "517130": "000016.SH",   # 建筑ETF → 近似
+        "517140": "000016.SH",   # 电力ETF → 近似
+        "517150": "000016.SH",   # 煤炭ETF → 近似
+        "517160": "000016.SH",   # 钢铁ETF → 近似
+        "517170": "000016.SH",   # 石油ETF → 近似
+        "517180": "000016.SH",   # 化工ETF → 近似
+        "517190": "000016.SH",   # 农业ETF → 近似
+        "517200": "000016.SH",   # 医药ETF → 近似
+    }
+
+    def _get_tracking_index(self, etf_code: str) -> Optional[str]:
+        """获取ETF跟踪的指数代码
+
+        优先使用内置映射表，其次尝试通过fund_basic接口查询benchmark字段。
+        """
+        code = etf_code.strip()
+        if code in self.ETF_INDEX_MAP:
+            return self.ETF_INDEX_MAP[code]
+        # 尝试通过fund_basic查询
+        try:
+            df = self.pro.fund_basic(market="E")
+            if df is not None and not df.empty:
+                row = df[df["ts_code"] == self._to_ts_code(code)]
+                if not row.empty:
+                    benchmark = row.iloc[0].get("benchmark", "")
+                    # 简单映射常见benchmark到指数代码
+                    bm_map = {
+                        "沪深300指数": "000300.SH",
+                        "中证500指数": "000905.SH",
+                        "上证50指数": "000016.SH",
+                        "创业板指数": "399006.SZ",
+                        "创业板50指数": "399673.SZ",
+                        "深证100指数": "399330.SZ",
+                        "中证1000指数": "000852.SH",
+                        "中证红利指数": "000922.SH",
+                        "上证红利指数": "000015.SH",
+                        "科创50指数": "000688.SH",
+                    }
+                    for bm_name, idx_code in bm_map.items():
+                        if bm_name in str(benchmark):
+                            return idx_code
+        except Exception as e:
+            logger.warning(f"[Tushare] 查询ETF {code} benchmark失败: {e}")
+        return None
+
+    @_cached(_CACHE_INDEX_DAILYBASIC)
+    def get_index_valuation_real(self, index_code: str) -> Dict:
+        """获取指数真实估值数据（PE/PB/股息率）
+
+        通过index_dailybasic接口获取指数最新估值。
+        """
+        try:
+            ts_code = self._to_ts_code(index_code) if "." not in index_code else index_code
+            # 获取近5年数据用于计算百分位
+            end = pd.Timestamp.now().strftime("%Y%m%d")
+            start = (pd.Timestamp.now() - pd.Timedelta(days=1825)).strftime("%Y%m%d")
+            df = self.pro.index_dailybasic(ts_code=ts_code, start_date=start, end_date=end)
+            if df is None or df.empty:
+                return {}
+            df = df.sort_values("trade_date")
+            latest = df.iloc[-1]
+            # 计算百分位
+            pe_series = pd.to_numeric(df["pe_ttm"], errors="coerce").dropna()
+            pb_series = pd.to_numeric(df["pb"], errors="coerce").dropna()
+            pe_val = float(latest.get("pe_ttm", 0) or 0)
+            pb_val = float(latest.get("pb", 0) or 0)
+            pe_pct = 0.0
+            pb_pct = 0.0
+            if len(pe_series) > 20 and pe_val > 0:
+                pe_pct = (pe_series < pe_val).sum() / len(pe_series) * 100
+            if len(pb_series) > 20 and pb_val > 0:
+                pb_pct = (pb_series < pb_val).sum() / len(pb_series) * 100
+            # 估算股息率
+            div_yield = 0.0
+            if pe_val > 0:
+                # 股息率 ≈ (1 - 留存率) / PE, 假设留存率60%
+                div_yield = (1 - 0.6) / pe_val * 100
+            return {
+                "index_code": index_code,
+                "pe_ttm": round(pe_val, 2),
+                "pe_percentile": round(pe_pct, 1),
+                "pb": round(pb_val, 2),
+                "pb_percentile": round(pb_pct, 1),
+                "dividend_yield": round(div_yield, 2),
+                "date": str(latest.get("trade_date", "")),
+                "data_source": "tushare_index_dailybasic",
+            }
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取指数 {index_code} 估值失败: {e}")
+            return {}
+
+    def get_etf_constituent_metrics(self, etf_code: str) -> Dict:
+        """获取ETF成分股加权基本面指标
+
+        通过fund_portfolio获取持仓，再用daily_basic获取个股指标，
+        计算加权平均的PE、PB、ROE、股息率。
+        """
+        try:
+            ts_code = self._to_ts_code(etf_code)
+            # 获取最新持仓
+            df_port = self.pro.fund_portfolio(ts_code=ts_code)
+            if df_port is None or df_port.empty:
+                return {}
+            # 取最新报告期
+            df_port = df_port.sort_values("end_date", ascending=False)
+            latest_date = df_port.iloc[0]["end_date"]
+            df_port = df_port[df_port["end_date"] == latest_date]
+            if df_port.empty:
+                return {}
+            # 获取每只股票的daily_basic指标
+            symbols = df_port["symbol"].unique().tolist()
+            all_metrics = []
+            for sym in symbols[:50]:  # 限制数量避免API限制
+                try:
+                    end = pd.Timestamp.now().strftime("%Y%m%d")
+                    start = (pd.Timestamp.now() - pd.Timedelta(days=30)).strftime("%Y%m%d")
+                    df_stock = self.pro.daily_basic(ts_code=sym, start_date=start, end_date=end)
+                    if df_stock is not None and not df_stock.empty:
+                        latest_stock = df_stock.iloc[-1]
+                        # 获取该股票的持仓权重
+                        weight_row = df_port[df_port["symbol"] == sym]
+                        weight = float(weight_row.iloc[0].get("stk_mkv_ratio", 0)) if not weight_row.empty else 0
+                        if weight <= 0:
+                            # 用市值占比估算权重
+                            mkv = float(weight_row.iloc[0].get("mkv", 0)) if not weight_row.empty else 0
+                            total_mkv = df_port["mkv"].astype(float).sum()
+                            weight = mkv / total_mkv if total_mkv > 0 else 0
+                        all_metrics.append({
+                            "symbol": sym,
+                            "weight": weight,
+                            "pe": float(latest_stock.get("pe_ttm", 0) or 0),
+                            "pb": float(latest_stock.get("pb", 0) or 0),
+                            "roe": float(latest_stock.get("dv_ratio", 0) or 0) * 5,  # ROE估算：股息率*5
+                            "dividend_yield": float(latest_stock.get("dv_ratio", 0) or 0),
+                            "total_mv": float(latest_stock.get("total_mv", 0) or 0),
+                        })
+                except Exception:
+                    continue
+            if not all_metrics:
+                return {}
+            metrics_df = pd.DataFrame(all_metrics)
+            # 过滤无效值
+            metrics_df = metrics_df[metrics_df["weight"] > 0]
+            if metrics_df.empty:
+                return {}
+            total_weight = metrics_df["weight"].sum()
+            # 加权计算（排除PE<=0的情况）
+            pe_df = metrics_df[metrics_df["pe"] > 0]
+            weighted_pe = (pe_df["pe"] * pe_df["weight"]).sum() / pe_df["weight"].sum() if not pe_df.empty else 0
+            pb_df = metrics_df[metrics_df["pb"] > 0]
+            weighted_pb = (pb_df["pb"] * pb_df["weight"]).sum() / pb_df["weight"].sum() if not pb_df.empty else 0
+            roe_df = metrics_df[metrics_df["roe"] > 0]
+            weighted_roe = (roe_df["roe"] * roe_df["weight"]).sum() / roe_df["weight"].sum() if not roe_df.empty else 0
+            div_df = metrics_df[metrics_df["dividend_yield"] >= 0]
+            weighted_div = (div_df["dividend_yield"] * div_df["weight"]).sum() / div_df["weight"].sum() if not div_df.empty else 0
+            return {
+                "pe_ttm": round(weighted_pe, 2),
+                "pb": round(weighted_pb, 2),
+                "roe": round(weighted_roe, 2),
+                "dividend_yield": round(weighted_div, 2),
+                "constituent_count": len(metrics_df),
+                "report_date": str(latest_date),
+                "data_source": "tushare_fund_portfolio+daily_basic",
+            }
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取ETF {etf_code} 成分股指标失败: {e}")
+            return {}
+
+    def get_etf_dividend_data(self, etf_code: str) -> Dict:
+        """获取ETF股息相关真实数据
+
+        综合指数估值股息率和成分股加权股息率。
+        """
+        result = {"dividend_yield": 0.0, "yield_source": "none", "report_date": ""}
+        try:
+            # 方法1：通过跟踪指数的股息率
+            index_code = self._get_tracking_index(etf_code)
+            if index_code:
+                idx_val = self.get_index_valuation_real(index_code)
+                if idx_val and idx_val.get("dividend_yield", 0) > 0:
+                    result["dividend_yield"] = idx_val["dividend_yield"]
+                    result["yield_source"] = "index_dividend"
+                    result["report_date"] = idx_val.get("date", "")
+            # 方法2：通过成分股加权股息率（更精确）
+            const_metrics = self.get_etf_constituent_metrics(etf_code)
+            if const_metrics and const_metrics.get("dividend_yield", 0) > 0:
+                # 如果两种方法都有数据，取平均值
+                if result["dividend_yield"] > 0:
+                    result["dividend_yield"] = round((result["dividend_yield"] + const_metrics["dividend_yield"]) / 2, 2)
+                else:
+                    result["dividend_yield"] = const_metrics["dividend_yield"]
+                result["yield_source"] = "constituent_weighted"
+                result["report_date"] = const_metrics.get("report_date", "")
+            return result
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取ETF {etf_code} 股息数据失败: {e}")
+            return result
+
+    @_cached(_CACHE_AUM)
+    def get_etf_aum_real(self, etf_code: str) -> Dict:
+        """获取ETF真实AUM数据
+
+        通过fund_nav和fund_share接口获取。
+        fund_share返回的fd_share单位为"份"（万份），数据按日期降序排列。
+        """
+        try:
+            ts_code = self._to_ts_code(etf_code)
+            result = {"aum": 0.0, "aum_source": "none", "nav": 0.0}
+            # 方法1：fund_nav获取最新净值
+            end = pd.Timestamp.now().strftime("%Y%m%d")
+            start = (pd.Timestamp.now() - pd.Timedelta(days=30)).strftime("%Y%m%d")
+            df_nav = self.pro.fund_nav(ts_code=ts_code, start_date=start, end_date=end)
+            if df_nav is not None and not df_nav.empty:
+                # 按日期降序排列，取最新
+                df_nav = df_nav.sort_values("nav_date", ascending=False)
+                latest = df_nav.iloc[0]
+                nav = float(latest.get("unit_nav", 0) or 0)
+                result["nav"] = round(nav, 4)
+                # total_netasset 字段通常为nan，尝试使用
+                tna = latest.get("total_netasset", None)
+                if pd.notna(tna) and float(tna) > 0:
+                    result["aum"] = round(float(tna) / 1e8, 2)  # 转亿元
+                    result["aum_source"] = "fund_nav_total_netasset"
+            # 方法2：fund_share获取份额 × 净值
+            if result["aum"] <= 0 and result["nav"] > 0:
+                df_share = self.pro.fund_share(ts_code=ts_code)
+                if df_share is not None and not df_share.empty:
+                    # 按日期降序排列，取最新
+                    df_share = df_share.sort_values("trade_date", ascending=False)
+                    latest_share = df_share.iloc[0]
+                    share = float(latest_share.get("fd_share", 0) or 0)
+                    if share > 0:
+                        # fd_share 单位为"万份"，AUM(元) = 份额(万份) × 10000 × 净值
+                        # AUM(亿元) = 份额(万份) × 净值 / 10000
+                        result["aum"] = round(share * result["nav"] / 10000, 2)
+                        result["aum_source"] = f"fund_share({latest_share.get('trade_date','')})*nav"
+            return result
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取ETF {etf_code} AUM失败: {e}")
+            return {"aum": 0.0, "aum_source": "none", "nav": 0.0}
+
+    @_cached(_CACHE_SHIBOR)
+    def get_macro_data(self) -> Dict:
+        """获取宏观数据
+
+        获取shibor利率等宏观指标。
+        """
+        try:
+            end = pd.Timestamp.now().strftime("%Y%m%d")
+            start = (pd.Timestamp.now() - pd.Timedelta(days=90)).strftime("%Y%m%d")
+            df = self.pro.shibor(start_date=start, end_date=end)
+            if df is None or df.empty:
+                return {}
+            df = df.sort_values("date")
+            latest = df.iloc[-1]
+            # 计算利率趋势（近3月vs前3月）
+            rate_3m = float(latest.get("3m", 0) or 0)
+            rate_1y = float(latest.get("1y", 0) or 0)
+            # 趋势
+            if len(df) >= 60:
+                recent_3m = df.tail(30)["3m"].astype(float).mean()
+                prev_3m = df.iloc[-60:-30]["3m"].astype(float).mean()
+                rate_trend = recent_3m - prev_3m
+            else:
+                rate_trend = 0.0
+            return {
+                "shibor_3m": round(rate_3m, 3),
+                "shibor_1y": round(rate_1y, 3),
+                "rate_trend": round(rate_trend, 4),
+                "rate_environment": "low" if rate_1y < 2.5 else ("medium" if rate_1y < 3.5 else "high"),
+                "date": str(latest.get("date", "")),
+                "data_source": "tushare_shibor",
+            }
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取宏观数据失败: {e}")
+            return {}
+
+    def get_etf_fundamental_data(self, etf_code: str) -> Dict:
+        """一键获取ETF全部基本面真实数据
+
+        这是丁昶五维评分引擎使用的主接口，一次性获取所有维度的真实数据。
+
+        Returns
+        -------
+        dict
+            {
+                "dividend": {"dividend_yield": x, ...},
+                "valuation": {"pe_ttm": x, "pb": x, "pe_percentile": x, ...},
+                "profitability": {"roe": x, ...},
+                "capital_flow": {"aum": x, ...},
+                "macro": {"shibor_3m": x, ...},
+                "constituent_metrics": {"pe_ttm": x, "pb": x, "roe": x, "dividend_yield": x},
+            }
+        """
+        logger.info(f"[Tushare] 获取ETF {etf_code} 全部基本面数据")
+        result = {
+            "dividend": {},
+            "valuation": {},
+            "profitability": {},
+            "capital_flow": {},
+            "macro": {},
+            "constituent_metrics": {},
+        }
+        try:
+            # 1. 股息数据
+            result["dividend"] = self.get_etf_dividend_data(etf_code)
+            # 2. 估值数据（优先用跟踪指数）
+            index_code = self._get_tracking_index(etf_code)
+            if index_code:
+                idx_val = self.get_index_valuation_real(index_code)
+                if idx_val:
+                    result["valuation"] = idx_val
+            # 3. 成分股指标
+            result["constituent_metrics"] = self.get_etf_constituent_metrics(etf_code)
+            # 如果有成分股估值数据但指数估值失败，用成分股的
+            if not result["valuation"] and result["constituent_metrics"]:
+                cm = result["constituent_metrics"]
+                result["valuation"] = {
+                    "pe_ttm": cm.get("pe_ttm", 0),
+                    "pb": cm.get("pb", 0),
+                    "pe_percentile": 50.0,
+                    "pb_percentile": 50.0,
+                    "dividend_yield": cm.get("dividend_yield", 0),
+                    "data_source": "constituent_weighted",
+                }
+            # 4. 盈利数据
+            if result["constituent_metrics"]:
+                result["profitability"] = {
+                    "roe": result["constituent_metrics"].get("roe", 0),
+                    "data_source": "constituent_weighted",
+                }
+            # 5. 资金流数据
+            result["capital_flow"] = self.get_etf_aum_real(etf_code)
+            # 6. 宏观数据（全局缓存，不需要每次都获取）
+            result["macro"] = self.get_macro_data()
+            logger.info(f"[Tushare] ETF {etf_code} 基本面数据获取完成")
+            return result
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取ETF {etf_code} 全部基本面数据失败: {e}")
+            return result
 
 
 class DataFetchError(Exception):

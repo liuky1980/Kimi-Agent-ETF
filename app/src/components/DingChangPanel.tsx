@@ -36,10 +36,10 @@ const dimensionMeta = [
     icon: DollarSign,
     color: '#10b981',
     subs: [
-      { key: 'yield', label: '股息率', unit: '%' },
-      { key: 'growth', label: '增长率', unit: '%' },
-      { key: 'stability', label: '稳定性', unit: '分' },
-      { key: 'continuity', label: '连续性', unit: '分' },
+      { key: 'dividend_yield', label: '股息率', unit: '%' },
+      { key: 'yield_5y_avg', label: '5年均值', unit: '%' },
+      { key: 'payout_consistency', label: '分红连续性', unit: '分' },
+      { key: 'distribution_quality', label: '分红质量', unit: '分' },
     ],
   },
   {
@@ -51,9 +51,9 @@ const dimensionMeta = [
     subs: [
       { key: 'pb', label: 'PB', unit: 'x' },
       { key: 'pbPercentile', label: 'PB百分位', unit: '%' },
-      { key: 'pe', label: 'PE', unit: 'x' },
+      { key: 'pe_ttm', label: 'PE-TTM', unit: 'x' },
       { key: 'peg', label: 'PEG', unit: '' },
-      { key: 'spread', label: '安全边际', unit: '%' },
+      { key: 'spread_risk_free', label: '无风险利差', unit: '%' },
     ],
   },
   {
@@ -65,8 +65,8 @@ const dimensionMeta = [
     subs: [
       { key: 'roe', label: 'ROE', unit: '%' },
       { key: 'roic', label: 'ROIC', unit: '%' },
-      { key: 'volatility', label: '波动率', unit: '%' },
-      { key: 'cashCoverage', label: '现金流覆盖', unit: '%' },
+      { key: 'earnings_stability', label: '盈利稳定性', unit: '分' },
+      { key: 'cash_flow_quality', label: '现金流质量', unit: '分' },
     ],
   },
   {
@@ -76,10 +76,10 @@ const dimensionMeta = [
     icon: Users,
     color: '#8b5cf6',
     subs: [
-      { key: 'insuranceChange', label: '保险持仓变化', unit: '%' },
-      { key: 'etfFlow', label: 'ETF资金流向', unit: '亿' },
-      { key: 'researchFreq', label: '机构调研频次', unit: '次' },
-      { key: 'northbound', label: '北向资金', unit: '亿' },
+      { key: 'institutional_change', label: '机构持仓变化', unit: '%' },
+      { key: 'fund_flow_20d', label: '20日资金流向', unit: '亿' },
+      { key: 'aum', label: '规模', unit: '亿' },
+      { key: 'aum_growth_3m', label: '3月规模增长', unit: '%' },
     ],
   },
   {
@@ -89,10 +89,10 @@ const dimensionMeta = [
     icon: Globe,
     color: '#06b6d4',
     subs: [
-      { key: 'cycleMatch', label: '周期匹配', unit: '分' },
-      { key: 'rateEnv', label: '利率环境', unit: '分' },
-      { key: 'policy', label: '政策支持', unit: '分' },
-      { key: 'globalVal', label: '全球估值', unit: '分' },
+      { key: 'cycle_fit_score', label: '周期匹配度', unit: '分' },
+      { key: 'rate_environment_fit', label: '利率环境适配', unit: '分' },
+      { key: 'policy_support', label: '政策支持', unit: '分' },
+      { key: 'global_comparison', label: '全球比较', unit: '分' },
     ],
   },
 ];

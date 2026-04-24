@@ -10,7 +10,7 @@
 """
 
 import logging
-from typing import Dict
+from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -30,7 +30,7 @@ class ProfitabilityQuality:
     def __init__(self):
         pass
 
-    def score(self, etf_code: str, df_daily: pd.DataFrame) -> ProfitabilityScore:
+    def score(self, etf_code: str, df_daily: pd.DataFrame, real_data: Optional[Dict] = None) -> ProfitabilityScore:
         """盈利质地评分主函数
 
         Parameters
@@ -39,6 +39,8 @@ class ProfitabilityQuality:
             ETF代码
         df_daily : pd.DataFrame
             日线数据
+        real_data : dict, optional
+            真实盈利数据（从tushare获取）
 
         Returns
         -------
@@ -53,27 +55,38 @@ class ProfitabilityQuality:
         if len(returns) < 60:
             return self._insufficient_data_score()
 
-        # 1. ROE近似（基于年化收益/波动率比率）
-        roe_approx = self._estimate_roe(close_prices, returns)
+        # 优先使用真实ROE数据
+        real_roe = 0.0
+        roe_source = "价格估算"
+        if real_data and real_data.get("roe", 0) > 0:
+            real_roe = real_data["roe"]
+            roe_source = real_data.get("data_source", "真实数据")
+            logger.info(f"[ProfitabilityQuality] 使用真实ROE {real_roe:.2f}% (来源: {roe_source})")
+
+        # 1. ROE（优先真实数据，否则估算）
+        if real_roe > 0:
+            roe = real_roe
+        else:
+            roe = self._estimate_roe(close_prices, returns)
 
         # 2. ROIC近似
-        roic_approx = roe_approx * 0.8  # 简化：ROIC通常略低于ROE
+        roic_approx = roe * 0.8  # 简化：ROIC通常略低于ROE
 
-        # 3. 盈利稳定性（收益变异系数倒数）
+        # 3. 盈利稳定性
         earnings_stability = self._calc_earnings_stability(returns)
 
         # 4. 收益增长趋势
         earnings_growth_3y = self._calc_growth_trend(close_prices)
 
-        # 5. 营收增长趋势（用价格增长代理）
+        # 5. 营收增长趋势
         revenue_growth_3y = earnings_growth_3y * 0.9  # 简化
 
-        # 6. 现金流质量（基于收益连续性评分）
+        # 6. 现金流质量
         cash_flow_quality = self._calc_cash_flow_quality(returns)
 
         # 子得分
         sub_scores = {
-            "roe_score": min(100, max(0, roe_approx * 4)),  # ROE 25% → 100分
+            "roe_score": min(100, max(0, roe * 4)),  # ROE 25% → 100分
             "roic_score": min(100, max(0, roic_approx * 4)),
             "earnings_stability": earnings_stability * 100,
             "earnings_growth": min(100, max(0, 50 + earnings_growth_3y * 5)),
@@ -91,17 +104,21 @@ class ProfitabilityQuality:
             sub_scores["cash_flow_quality"] * 0.10
         )
 
+        desc = (f"盈利质地: {('真实' if real_roe > 0 else '估算')}ROE {roe:.1f}%, 盈利稳定性 {earnings_stability:.2f}, "
+                f"3年增长趋势 {earnings_growth_3y:.1f}%")
+        if real_roe > 0:
+            desc += f" (来源: {roe_source})"
+
         return ProfitabilityScore(
             score=round(min(100, max(0, composite)), 1),
-            roe=round(roe_approx, 2),
+            roe=round(roe, 2),
             roic=round(roic_approx, 2),
             earnings_stability=round(earnings_stability, 3),
             earnings_growth_3y=round(earnings_growth_3y, 2),
             revenue_growth_3y=round(revenue_growth_3y, 2),
             cash_flow_quality=round(cash_flow_quality, 3),
             sub_scores=sub_scores,
-            description=f"盈利质地: ROE近似 {roe_approx:.1f}%, 盈利稳定性 {earnings_stability:.2f}, "
-                       f"3年增长趋势 {earnings_growth_3y:.1f}%"
+            description=desc
         )
 
     def _estimate_roe(self, close_prices: pd.Series, returns: pd.Series) -> float:

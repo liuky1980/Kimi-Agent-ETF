@@ -44,14 +44,16 @@ class DingChangEngine:
     """丁昶分析框架五维评分引擎
 
     对ETF从五个维度进行全面评估，生成综合评分和投资建议。
+    支持传入数据获取器(fetcher)以接入真实财务/宏观数据。
     """
 
-    def __init__(self):
+    def __init__(self, fetcher=None):
         self.dividend = DividendQuality()
         self.valuation = ValuationSafety()
         self.profitability = ProfitabilityQuality()
         self.capital_flow = CapitalFlow()
         self.macro = MacroAdaptation()
+        self.fetcher = fetcher  # 可选的数据获取器
 
         # 阈值配置
         self.threshold_buy = settings.DINGCHANG_COMPOSITE_THRESHOLD_BUY
@@ -91,12 +93,21 @@ class DingChangEngine:
         """
         logger.info(f"开始对 {etf_code} 执行丁昶分析框架五维评分")
 
-        # 执行五个维度的独立评分
-        dividend_score = self.dividend.score(etf_code, df_daily)
-        valuation_score = self.valuation.score(etf_code, df_daily)
-        profitability_score = self.profitability.score(etf_code, df_daily)
-        capital_flow_score = self.capital_flow.score(etf_code, df_daily)
-        macro_score = self.macro.score(etf_code, df_daily)
+        # 尝试获取真实基本面数据（如果fetcher可用）
+        real_data = {}
+        if self.fetcher is not None:
+            try:
+                real_data = self.fetcher.get_etf_fundamental_data(etf_code)
+                logger.info(f"[DingChang] 获取到 {etf_code} 真实数据: { {k: bool(v) for k, v in real_data.items()} }")
+            except Exception as e:
+                logger.warning(f"[DingChang] 获取真实数据失败，使用价格估算: {e}")
+
+        # 执行五个维度的独立评分（传入真实数据）
+        dividend_score = self.dividend.score(etf_code, df_daily, real_data.get("dividend"))
+        valuation_score = self.valuation.score(etf_code, df_daily, real_data.get("valuation"))
+        profitability_score = self.profitability.score(etf_code, df_daily, real_data.get("profitability"))
+        capital_flow_score = self.capital_flow.score(etf_code, df_daily, real_data.get("capital_flow"))
+        macro_score = self.macro.score(etf_code, df_daily, real_data.get("macro"))
 
         # 构建维度结果
         dimensions = DingChangDimensions(
