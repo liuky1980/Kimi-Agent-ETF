@@ -3,7 +3,6 @@ import type { Tab } from '@/components/Navbar';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import Home from '@/pages/Home';
-import ETFList from '@/pages/ETFList';
 import ChanlunAnalysis from '@/pages/ChanlunAnalysis';
 import DingChangAnalysis from '@/pages/DingChangAnalysis';
 import Overview from '@/pages/Overview';
@@ -31,7 +30,6 @@ export default function App() {
       <main className="flex-1 pt-20 pb-8">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           {activeTab === 'home' && <Home onNavigate={handleNavigate} />}
-          {activeTab === 'etflist' && <ETFList onNavigate={handleNavigate} />}
           {activeTab === 'overview' && <Overview initialCode={selectedETF} />}
           {activeTab === 'chanlun' && <ChanlunAnalysis initialCode={selectedETF} />}
           {activeTab === 'dingchang' && <DingChangAnalysis initialCode={selectedETF} />}
