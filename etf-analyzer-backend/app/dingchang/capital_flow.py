@@ -68,13 +68,18 @@ class CapitalFlow:
             aum_source = real_data.get("aum_source", "真实数据")
             logger.info(f"[CapitalFlow] 使用真实AUM {real_aum:.2f}亿 (来源: {aum_source})")
 
+        # P1: 获取北向资金、机构持仓、衍生品信号
+        nb_data = real_data.get("northbound_flow", {}) if real_data else {}
+        inst_data = real_data.get("institutional_holding", {}) if real_data else {}
+        deriv_data = real_data.get("derivative_signal", {}) if real_data else {}
+
         # 1. AUM（优先真实数据）
         if real_aum > 0:
             aum_estimate = real_aum * 1e8  # 转回元
         else:
             aum_estimate = self._estimate_aum(amount)
 
-        # 2. AUM增长趋势（真实数据无法直接获取增长，仍用成交额估算）
+        # 2. AUM增长趋势
         aum_growth_3m = self._calc_aum_growth(amount, period=60)
         aum_growth_1y = self._calc_aum_growth(amount, period=252)
 
@@ -84,36 +89,57 @@ class CapitalFlow:
         # 4. 机构持仓占比估算
         institutional_ratio = self._estimate_institutional_ratio(close_prices, volume)
 
-        # 5. 机构持仓变化
-        institutional_change = self._estimate_institutional_change(volume)
+        # 5. 机构持仓变化（P1: 优先真实数据）
+        holder_change = inst_data.get("holder_change_qoq", 0)
+        holder_trend = inst_data.get("holder_trend", "stable")
+        # 股东人数减少 → 机构集中 → 利好，用负值表示利好
+        institutional_change_real = -holder_change if holder_change != 0 else self._estimate_institutional_change(volume)
 
         # 6. 资金流向估算
         fund_flow_20d = self._estimate_fund_flow(close_prices, volume, period=20)
 
-        # 子得分
+        # 7. 北向资金（P1）
+        nb_flow_5d = nb_data.get("net_flow_5d", 0)
+        nb_trend = nb_data.get("trend", "neutral")
+
+        # 8. 衍生品信号（P1）
+        basis_pct = deriv_data.get("basis_pct", 0)
+        deriv_signal = deriv_data.get("signal", "neutral")
+
+        # 子得分（P1增强）
         sub_scores = {
-            "aum_score": min(100, max(0, 30 + aum_estimate / 1e8)),  # AUM越大越好
+            "aum_score": min(100, max(0, 30 + aum_estimate / 1e8)),
             "aum_growth_3m": min(100, max(0, 50 + aum_growth_3m * 10)),
             "aum_growth_1y": min(100, max(0, 50 + aum_growth_1y * 5)),
-            "volume_trend": (volume_trend + 1) * 50,  # -1~1 映射到 0~100
+            "volume_trend": (volume_trend + 1) * 50,
             "institutional_ratio": institutional_ratio * 100,
-            "institutional_change": min(100, max(0, 50 + institutional_change * 5)),
+            "institutional_change": min(100, max(0, 50 + institutional_change_real * 5)),
             "fund_flow_20d": min(100, max(0, 50 + fund_flow_20d * 20)),
+            # P1新增
+            "northbound_flow": min(100, max(0, 50 + nb_flow_5d * 2)),
+            "derivative_signal": 80 if deriv_signal == "bullish" else (50 if deriv_signal == "neutral" else 20),
         }
 
-        # 综合评分
+        # 综合评分（P1重新权重分配）
         composite = (
-            sub_scores["aum_growth_3m"] * 0.25 +
-            sub_scores["aum_growth_1y"] * 0.20 +
-            sub_scores["volume_trend"] * 0.20 +
+            sub_scores["aum_growth_3m"] * 0.20 +
+            sub_scores["aum_growth_1y"] * 0.15 +
+            sub_scores["volume_trend"] * 0.15 +
             sub_scores["institutional_change"] * 0.15 +
-            sub_scores["fund_flow_20d"] * 0.20
+            sub_scores["fund_flow_20d"] * 0.15 +
+            sub_scores["northbound_flow"] * 0.10 +
+            sub_scores["derivative_signal"] * 0.10
         )
 
-        desc = (f"资金驱动: AUM={aum_estimate/1e8:.1f}亿(来源: {aum_source}), "
-                f"3月AUM增长 {aum_growth_3m*100:.1f}%, "
-                f"成交量趋势 {volume_trend:+.3f}, "
-                f"近20日资金流向 {fund_flow_20d:+.4f}")
+        desc = (f"资金驱动: AUM={aum_estimate/1e8:.1f}亿(来源:{aum_source}), "
+                f"3月AUM增长{aum_growth_3m*100:.1f}%, 成交量趋势{volume_trend:+.3f}, "
+                f"近20日资金流向{fund_flow_20d:+.4f}")
+        if nb_flow_5d != 0:
+            desc += f" | 北向{nb_flow_5d:+.1f}亿({nb_trend})"
+        if holder_change != 0:
+            desc += f" | 股东人数变化{holder_change:+.1f}%({holder_trend})"
+        if basis_pct != 0:
+            desc += f" | 期货基差{basis_pct:+.3f}%({deriv_signal})"
 
         return CapitalFlowScore(
             score=round(min(100, max(0, composite)), 1),
@@ -122,8 +148,15 @@ class CapitalFlow:
             aum_growth_1y=round(aum_growth_1y * 100, 2),
             volume_trend=round(volume_trend, 3),
             institutional_ratio=round(institutional_ratio, 3),
-            institutional_change=round(institutional_change * 100, 2),
+            institutional_change=round(institutional_change_real, 2),
             fund_flow_20d=round(fund_flow_20d, 4),
+            # P1新增
+            northbound_flow_5d=round(nb_flow_5d, 2),
+            northbound_trend=nb_trend,
+            holder_change_qoq=round(holder_change, 2),
+            holder_trend=holder_trend,
+            basis_pct=round(basis_pct, 3),
+            derivative_signal=deriv_signal,
             sub_scores=sub_scores,
             description=desc
         )

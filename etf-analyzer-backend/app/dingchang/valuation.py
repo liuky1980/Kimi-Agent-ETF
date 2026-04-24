@@ -75,34 +75,78 @@ class ValuationSafety:
         pb = real_data.get("pb", 0)
         pe_percentile = real_data.get("pe_percentile", 50.0)
         pb_percentile = real_data.get("pb_percentile", 50.0)
-        div_yield = real_data.get("dividend_yield", 0)
+        div_yield = real_data.get("dividend_yield", 0)  # 真实股息率
 
-        # 利差（假设3%无风险利率）
-        risk_free_rate = 0.03
-        earnings_yield = 1 / pe_ttm * 100 if pe_ttm > 0 else 0
-        spread = earnings_yield - risk_free_rate * 100
+        # 利差：股息率 - 无风险利率（丁昶报告核心指标）
+        # 优先使用10年期国债收益率，回退到shibor_1y
+        risk_free_rate = real_data.get("risk_free_rate", 0)
+        if risk_free_rate <= 0:
+            risk_free_rate = real_data.get("shibor_1y", 0)
+        if risk_free_rate <= 0:
+            risk_free_rate = 3.0  # 默认3%
+
+        # 安全边际宽度 = 股息率 - 无风险利率
+        spread = div_yield - risk_free_rate
 
         # 净值折溢价估算
         nav_premium = self._estimate_nav_premium(close_prices)
 
-        # 各子项评分（估值越低 → 分数越高）
+        # 各子项评分（丁昶报告阈值）
+        # PB水平及历史分位 (10分)
+        if pb < 0.6 and pb_percentile < 20:
+            pb_score = 10
+        elif pb < 1.0 and pb_percentile < 50:
+            pb_score = 7
+        elif pb < 1.5:
+            pb_score = 3
+        else:
+            pb_score = 0
+
+        # PE水平 (5分)
+        if pe_ttm < 7 and pe_ttm > 0:
+            pe_score = 5
+        elif pe_ttm < 10:
+            pe_score = 3
+        elif pe_ttm < 15:
+            pe_score = 1
+        else:
+            pe_score = 0
+
+        # PEG (5分)
+        earnings_yield = 1 / pe_ttm * 100 if pe_ttm > 0 else 0
+        peg = pe_ttm / max(earnings_yield, 1) if pe_ttm > 0 and earnings_yield > 0 else 0
+        if peg < 1 and peg > 0:
+            peg_score = 5
+        elif peg < 1.5:
+            peg_score = 3
+        else:
+            peg_score = 0
+
+        # 安全边际宽度/利差 (5分) — 丁昶报告：利差>4%得5分，3-4%得4分，2-3%得2分，<2%得0分
+        if spread > 4:
+            spread_score = 5
+        elif spread > 3:
+            spread_score = 4
+        elif spread > 2:
+            spread_score = 2
+        else:
+            spread_score = 0
+
         sub_scores = {
-            "pe_percentile_score": 100 - pe_percentile,
-            "pb_percentile_score": 100 - pb_percentile,
-            "peg_score": min(100, max(0, 100 - (pe_ttm / max(earnings_yield, 1)) * 20)) if pe_ttm > 0 and earnings_yield > 0 else 50,
-            "spread_score": min(100, max(0, 50 + spread * 5)),
+            "pb_level_score": pb_score * 10,  # 扩展到100分制便于展示
+            "pe_level_score": pe_score * 20,
+            "peg_score": peg_score * 20,
+            "spread_score": spread_score * 20,
             "nav_premium_score": min(100, max(0, 100 - abs(nav_premium) * 2)),
             "price_vs_ma": self._price_vs_moving_average_score(close_prices),
         }
 
-        # 综合评分
+        # 综合评分（丁昶报告权重：PB 40% + PE 20% + PEG 20% + 利差 20%）
         composite = (
-            sub_scores["pe_percentile_score"] * 0.30 +
-            sub_scores["pb_percentile_score"] * 0.25 +
-            sub_scores["peg_score"] * 0.15 +
-            sub_scores["spread_score"] * 0.10 +
-            sub_scores["nav_premium_score"] * 0.10 +
-            sub_scores["price_vs_ma"] * 0.10
+            pb_score * 10 * 0.40 +
+            pe_score * 20 * 0.20 +
+            peg_score * 20 * 0.20 +
+            spread_score * 20 * 0.20
         )
 
         source = real_data.get("data_source", "真实数据")
@@ -113,13 +157,13 @@ class ValuationSafety:
             pe_percentile=round(pe_percentile, 1),
             pb=round(pb, 2),
             pb_percentile=round(pb_percentile, 1),
-            peg=round(pe_ttm / max(earnings_yield, 1), 2) if pe_ttm > 0 and earnings_yield > 0 else 0,
+            peg=round(peg, 2),
             spread_risk_free=round(spread, 2),
             nav_discount_premium=round(nav_premium, 2),
             valuation_method=f"真实数据估值法（{source}）",
             sub_scores=sub_scores,
             description=f"真实估值评分: PE百分位 {pe_percentile:.1f}%, PB百分位 {pb_percentile:.1f}%, "
-                       f"PE_TTM={pe_ttm:.1f}, PB={pb:.2f} (来源: {source})"
+                       f"PE_TTM={pe_ttm:.1f}, PB={pb:.2f}, 股息率={div_yield:.2f}%, 利差={spread:.2f}% (无风险利率={risk_free_rate:.2f}%) (来源: {source})"
         )
 
     def _score_with_estimated_data(self, etf_code: str, df_daily: pd.DataFrame) -> ValuationScore:
@@ -142,29 +186,67 @@ class ValuationSafety:
         # 净值折溢价估算
         nav_premium = self._estimate_nav_premium(close_prices)
 
-        # 利差估算
-        risk_free_rate = 0.03
-        estimated_yield = pe_approx / 100 * risk_free_rate if pe_approx > 0 else 0
-        spread = estimated_yield - risk_free_rate
+        # 利差估算：基于估算股息率 - 无风险利率
+        # 回退模式下假设无风险利率约3%
+        risk_free_rate = 3.0
+        # 估算股息率：基于PE倒数 × 假设股利支付率40%
+        estimated_div_yield = (1 / pe_approx * 100 * 0.4) if pe_approx > 0 else 0
+        spread = estimated_div_yield - risk_free_rate
 
-        # 各子项评分
+        # 各子项评分（丁昶报告阈值）
+        # PB水平及历史分位 (10分)
+        if pb_approx < 0.6 and pb_percentile < 20:
+            pb_score = 10
+        elif pb_approx < 1.0 and pb_percentile < 50:
+            pb_score = 7
+        elif pb_approx < 1.5:
+            pb_score = 3
+        else:
+            pb_score = 0
+
+        # PE水平 (5分)
+        if pe_approx < 7 and pe_approx > 0:
+            pe_score = 5
+        elif pe_approx < 10:
+            pe_score = 3
+        elif pe_approx < 15:
+            pe_score = 1
+        else:
+            pe_score = 0
+
+        # PEG (5分)
+        if peg_approx < 1 and peg_approx > 0:
+            peg_score = 5
+        elif peg_approx < 1.5:
+            peg_score = 3
+        else:
+            peg_score = 0
+
+        # 安全边际宽度/利差 (5分)
+        if spread > 4:
+            spread_score = 5
+        elif spread > 3:
+            spread_score = 4
+        elif spread > 2:
+            spread_score = 2
+        else:
+            spread_score = 0
+
         sub_scores = {
-            "pe_percentile_score": 100 - pe_percentile,
-            "pb_percentile_score": 100 - pb_percentile,
-            "peg_score": min(100, max(0, 100 - peg_approx * 20)) if peg_approx > 0 else 50,
-            "spread_score": min(100, max(0, 50 + spread * 500)),
+            "pb_level_score": pb_score * 10,
+            "pe_level_score": pe_score * 20,
+            "peg_score": peg_score * 20,
+            "spread_score": spread_score * 20,
             "nav_premium_score": min(100, max(0, 100 - abs(nav_premium) * 2)),
             "price_vs_ma": self._price_vs_moving_average_score(close_prices),
         }
 
-        # 综合评分
+        # 综合评分（丁昶报告权重：PB 40% + PE 20% + PEG 20% + 利差 20%）
         composite = (
-            sub_scores["pe_percentile_score"] * 0.30 +
-            sub_scores["pb_percentile_score"] * 0.25 +
-            sub_scores["peg_score"] * 0.15 +
-            sub_scores["spread_score"] * 0.10 +
-            sub_scores["nav_premium_score"] * 0.10 +
-            sub_scores["price_vs_ma"] * 0.10
+            pb_score * 10 * 0.40 +
+            pe_score * 20 * 0.20 +
+            peg_score * 20 * 0.20 +
+            spread_score * 20 * 0.20
         )
 
         valuation_method = self._determine_valuation_method(etf_code, close_prices)
@@ -176,11 +258,12 @@ class ValuationSafety:
             pb=round(pb_approx, 2),
             pb_percentile=round(pb_percentile, 1),
             peg=round(peg_approx, 2),
-            spread_risk_free=round(spread * 100, 2),
+            spread_risk_free=round(spread, 2),
             nav_discount_premium=round(nav_premium, 2),
             valuation_method=f"价格估算法（{valuation_method}）",
             sub_scores=sub_scores,
-            description=f"价格估算评分: PE百分位 {pe_percentile:.1f}%, PB百分位 {pb_percentile:.1f}%"
+            description=f"价格估算评分: PE百分位 {pe_percentile:.1f}%, PB百分位 {pb_percentile:.1f}%, "
+                       f"估算利差={spread:.2f}% (无风险利率={risk_free_rate:.1f}%)"
         )
 
     def _estimate_pe(self, close_prices: pd.Series) -> float:

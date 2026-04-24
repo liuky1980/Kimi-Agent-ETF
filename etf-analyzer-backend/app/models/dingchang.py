@@ -21,6 +21,10 @@ class DividendScore(BaseModel):
     payout_consistency: float = Field(0.0, ge=0.0, le=1.0, description="分红持续性评分")
     distribution_quality: float = Field(0.0, ge=0.0, le=1.0, description="分红质量评分")
     capital_return_efficiency: float = Field(0.0, ge=0.0, le=1.0, description="资本回报效率 (非分红型ETF替代指标)")
+    # 丁昶报告新增子指标
+    dividend_growth_3y: float = Field(0.0, description="近三年股息复合增长率 (%)")
+    payout_ratio_stability: float = Field(0.0, ge=0.0, le=1.0, description="股息支付率稳定性评分 (0~1)")
+    dividend_continuity_years: int = Field(0, description="成分股连续分红年限中位数")
     sub_scores: Dict[str, float] = Field(default_factory=dict, description="子项得分明细")
     description: str = Field("", description="维度评价说明")
 
@@ -63,6 +67,13 @@ class CapitalFlowScore(BaseModel):
     institutional_ratio: float = Field(0.0, ge=0.0, le=1.0, description="机构持仓占比")
     institutional_change: float = Field(0.0, description="机构持仓变化 (%)")
     fund_flow_20d: float = Field(0.0, description="近20日资金流向")
+    # P1新增字段
+    northbound_flow_5d: float = Field(0.0, description="北向资金5日净流入 (亿)")
+    northbound_trend: str = Field("", description="北向资金趋势")
+    holder_change_qoq: float = Field(0.0, description="股东人数环比变化 (%)")
+    holder_trend: str = Field("", description="股东人数变化趋势")
+    basis_pct: float = Field(0.0, description="期货基差 (%)")
+    derivative_signal: str = Field("", description="衍生品信号")
     sub_scores: Dict[str, float] = Field(default_factory=dict, description="子项得分明细")
     description: str = Field("", description="维度评价说明")
 

@@ -957,31 +957,138 @@ class TushareETFDataFetcher:
     def get_etf_dividend_data(self, etf_code: str) -> Dict:
         """获取ETF股息相关真实数据
 
-        综合指数估值股息率和成分股加权股息率。
+        P1一致性优化：统一股息率 = 估值股息率×0.7 + 成分股息息率×0.3
         """
-        result = {"dividend_yield": 0.0, "yield_source": "none", "report_date": ""}
+        result = {"dividend_yield": 0.0, "yield_source": "none", "report_date": "",
+                  "index_dividend_yield": 0.0, "constituent_dividend_yield": 0.0}
         try:
-            # 方法1：通过跟踪指数的股息率
+            # 方法1：通过跟踪指数的股息率（0.7权重）
             index_code = self._get_tracking_index(etf_code)
+            idx_yield = 0.0
             if index_code:
                 idx_val = self.get_index_valuation_real(index_code)
                 if idx_val and idx_val.get("dividend_yield", 0) > 0:
-                    result["dividend_yield"] = idx_val["dividend_yield"]
+                    idx_yield = idx_val["dividend_yield"]
+                    result["index_dividend_yield"] = idx_yield
                     result["yield_source"] = "index_dividend"
                     result["report_date"] = idx_val.get("date", "")
-            # 方法2：通过成分股加权股息率（更精确）
+
+            # 方法2：通过成分股加权股息率（0.3权重）
+            const_yield = 0.0
             const_metrics = self.get_etf_constituent_metrics(etf_code)
             if const_metrics and const_metrics.get("dividend_yield", 0) > 0:
-                # 如果两种方法都有数据，取平均值
-                if result["dividend_yield"] > 0:
-                    result["dividend_yield"] = round((result["dividend_yield"] + const_metrics["dividend_yield"]) / 2, 2)
-                else:
-                    result["dividend_yield"] = const_metrics["dividend_yield"]
-                result["yield_source"] = "constituent_weighted"
+                const_yield = const_metrics["dividend_yield"]
+                result["constituent_dividend_yield"] = const_yield
                 result["report_date"] = const_metrics.get("report_date", "")
+
+            # P1一致性优化：统一股息率计算
+            if idx_yield > 0 and const_yield > 0:
+                result["dividend_yield"] = round(idx_yield * 0.7 + const_yield * 0.3, 2)
+                result["yield_source"] = "blended(0.7idx+0.3const)"
+            elif idx_yield > 0:
+                result["dividend_yield"] = idx_yield
+                result["yield_source"] = "index_dividend"
+            elif const_yield > 0:
+                result["dividend_yield"] = const_yield
+                result["yield_source"] = "constituent_weighted"
+
             return result
         except Exception as e:
             logger.warning(f"[Tushare] 获取ETF {etf_code} 股息数据失败: {e}")
+            return result
+
+    def get_etf_dividend_enhanced(self, etf_code: str) -> Dict:
+        """获取ETF股息增强数据
+
+        通过成分股历史分红数据计算：
+        1. 股息增长率（近3年复合增长率）
+        2. 股息支付率稳定性
+        3. 连续分红年限
+
+        Returns
+        -------
+        dict
+            {
+                "dividend_growth_3y": float,
+                "payout_ratio_stability": float,
+                "dividend_continuity_years": int,
+                "data_source": str,
+            }
+        """
+        result = {
+            "dividend_growth_3y": 0.0,
+            "payout_ratio_stability": 0.0,
+            "dividend_continuity_years": 0,
+            "data_source": "none",
+        }
+        try:
+            # 获取跟踪指数代码
+            index_code = self._get_tracking_index(etf_code)
+            if not index_code:
+                return result
+
+            # 获取指数成分股
+            ts_idx = self._to_ts_code(index_code) if "." not in index_code else index_code
+            end_date = pd.Timestamp.now().strftime("%Y%m%d")
+            df_weight = self.pro.index_weight(index_code=ts_idx, trade_date=end_date)
+            if df_weight is None or df_weight.empty:
+                # 尝试上个月末
+                prev_month = (pd.Timestamp.now() - pd.Timedelta(days=30)).strftime("%Y%m%d")
+                df_weight = self.pro.index_weight(index_code=ts_idx, trade_date=prev_month)
+            if df_weight is None or df_weight.empty:
+                return result
+
+            symbols = df_weight["con_code"].unique().tolist()[:30]  # 限制数量
+            growth_rates = []
+            payout_stabilities = []
+            continuity_years = []
+
+            for sym in symbols:
+                try:
+                    # 获取该股票近3年分红数据
+                    start = (pd.Timestamp.now() - pd.Timedelta(days=1460)).strftime("%Y%m%d")
+                    df_div = self.pro.dividend(ts_code=sym, start_date=start, end_date=end_date)
+                    if df_div is None or df_div.empty:
+                        continue
+                    df_div = df_div.sort_values("end_date")
+                    # 过滤正式实施的分红
+                    df_div = df_div[df_div["div_proc"].isin(["实施", "实施完毕", "分派"])]
+                    if len(df_div) < 2:
+                        continue
+
+                    # 计算股息增长率
+                    cash_divs = pd.to_numeric(df_div["cash_div"], errors="coerce").dropna()
+                    if len(cash_divs) >= 2:
+                        first_div = cash_divs.iloc[0]
+                        last_div = cash_divs.iloc[-1]
+                        years = max(len(cash_divs) - 1, 1)
+                        if first_div > 0 and last_div > 0:
+                            cagr = (last_div / first_div) ** (1 / years) - 1
+                            growth_rates.append(cagr * 100)
+
+                    # 连续分红年限
+                    continuity_years.append(len(df_div))
+
+                    # 股息支付率稳定性：假设分红率 = 每股分红 / EPS
+                    # 由于Tushare dividend接口没有EPS，用分红金额变异系数作为代理
+                    if len(cash_divs) >= 2:
+                        cv = cash_divs.std() / (cash_divs.mean() + 1e-6)
+                        # CV越低越稳定，CV<0.15得满分
+                        stability = max(0, min(1, 1.0 - cv / 0.5))
+                        payout_stabilities.append(stability)
+                except Exception:
+                    continue
+
+            if growth_rates:
+                result["dividend_growth_3y"] = round(np.median(growth_rates), 2)
+            if payout_stabilities:
+                result["payout_ratio_stability"] = round(np.median(payout_stabilities), 3)
+            if continuity_years:
+                result["dividend_continuity_years"] = int(np.median(continuity_years))
+            result["data_source"] = "tushare_dividend"
+            return result
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取ETF {etf_code} 增强股息数据失败: {e}")
             return result
 
     @_cached(_CACHE_AUM)
@@ -1111,20 +1218,182 @@ class TushareETFDataFetcher:
                     "dividend_yield": cm.get("dividend_yield", 0),
                     "data_source": "constituent_weighted",
                 }
-            # 4. 盈利数据
+            # 将宏观数据中的无风险利率注入估值数据（供估值模块计算利差使用）
+            macro_data = self.get_macro_data()
+            if macro_data:
+                result["macro"] = macro_data
+                risk_free = macro_data.get("shibor_1y", 0)
+                if risk_free > 0 and result["valuation"]:
+                    result["valuation"]["risk_free_rate"] = risk_free
+                    result["valuation"]["shibor_1y"] = risk_free
+            # 4. 股息数据增强：增长率、支付率稳定性、持续性
+            div_enhanced = self.get_etf_dividend_enhanced(etf_code)
+            if div_enhanced and result["dividend"]:
+                result["dividend"].update(div_enhanced)
+            # 5. 盈利数据
             if result["constituent_metrics"]:
                 result["profitability"] = {
                     "roe": result["constituent_metrics"].get("roe", 0),
                     "data_source": "constituent_weighted",
                 }
-            # 5. 资金流数据
+            # 6. 资金流数据（增强：北向+机构+衍生品）
             result["capital_flow"] = self.get_etf_aum_real(etf_code)
-            # 6. 宏观数据（全局缓存，不需要每次都获取）
-            result["macro"] = self.get_macro_data()
+            # P1-2: 北向资金流向
+            result["northbound_flow"] = self.get_northbound_flow(etf_code)
+            # P1-2: 机构持仓变化
+            result["institutional_holding"] = self.get_institutional_holding(etf_code)
+            # P1-3: 衍生品信号（基差）
+            result["derivative_signal"] = self.get_derivative_signal(etf_code)
             logger.info(f"[Tushare] ETF {etf_code} 基本面数据获取完成")
             return result
         except Exception as e:
             logger.warning(f"[Tushare] 获取ETF {etf_code} 全部基本面数据失败: {e}")
+            return result
+
+    def get_northbound_flow(self, etf_code: str) -> Dict:
+        """获取北向资金流向
+
+        通过moneyflow_hsgt获取沪深港通资金流向。
+        """
+        result = {
+            "net_flow_20d": 0.0,
+            "net_flow_5d": 0.0,
+            "trend": "neutral",
+            "data_source": "none",
+        }
+        try:
+            end_date = pd.Timestamp.now().strftime("%Y%m%d")
+            start_date = (pd.Timestamp.now() - pd.Timedelta(days=30)).strftime("%Y%m%d")
+            df = self.pro.moneyflow_hsgt(start_date=start_date, end_date=end_date)
+            if df is None or df.empty:
+                return result
+            df = df.sort_values("trade_date")
+            # 计算近20日和近5日净流入
+            df["net_buy"] = pd.to_numeric(df.get("north_money", df.get("net_mf", 0)), errors="coerce").fillna(0)
+            result["net_flow_20d"] = round(df["net_buy"].tail(20).sum(), 2)
+            result["net_flow_5d"] = round(df["net_buy"].tail(5).sum(), 2)
+            # 趋势判断
+            if result["net_flow_5d"] > 50:
+                result["trend"] = "strong_inflow"
+            elif result["net_flow_5d"] > 0:
+                result["trend"] = "inflow"
+            elif result["net_flow_5d"] > -50:
+                result["trend"] = "outflow"
+            else:
+                result["trend"] = "strong_outflow"
+            result["data_source"] = "moneyflow_hsgt"
+            return result
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取北向资金流向失败: {e}")
+            return result
+
+    def get_institutional_holding(self, etf_code: str) -> Dict:
+        """获取机构持仓变化
+
+        通过stk_holdernumber获取股东人数变化作为机构持仓代理指标。
+        """
+        result = {
+            "holder_change_qoq": 0.0,
+            "holder_trend": "stable",
+            "data_source": "none",
+        }
+        try:
+            # 获取跟踪指数代码，查询指数成分股的股东人数变化
+            index_code = self._get_tracking_index(etf_code)
+            if not index_code:
+                return result
+            ts_idx = self._to_ts_code(index_code) if "." not in index_code else index_code
+            # 获取指数成分股
+            end_date = pd.Timestamp.now().strftime("%Y%m%d")
+            df_weight = self.pro.index_weight(index_code=ts_idx, trade_date=end_date)
+            if df_weight is None or df_weight.empty:
+                return result
+            top_stock = df_weight.iloc[0]["con_code"]
+            # 查询该股票股东人数
+            df_holder = self.pro.stk_holdernumber(ts_code=top_stock)
+            if df_holder is None or df_holder.empty:
+                return result
+            df_holder = df_holder.sort_values("end_date")
+            if len(df_holder) >= 2:
+                latest = int(df_holder.iloc[-1].get("holder_num", 0))
+                prev = int(df_holder.iloc[-2].get("holder_num", 0))
+                if prev > 0:
+                    change = (latest - prev) / prev * 100
+                    result["holder_change_qoq"] = round(change, 2)
+                    # 股东人数减少 → 机构持仓集中 → 利好
+                    if change < -5:
+                        result["holder_trend"] = "concentration"  # 集中，利好
+                    elif change < 0:
+                        result["holder_trend"] = "slight_concentration"
+                    elif change < 5:
+                        result["holder_trend"] = "stable"
+                    else:
+                        result["holder_trend"] = "dispersion"  # 分散，利空
+            result["data_source"] = "stk_holdernumber"
+            return result
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取机构持仓变化失败: {e}")
+            return result
+
+    def get_derivative_signal(self, etf_code: str) -> Dict:
+        """获取衍生品信号
+
+        通过期货合约价格计算基差。ETF通常没有直接对应的期货，
+        通过指数期货代替。
+        """
+        result = {
+            "basis": 0.0,
+            "basis_pct": 0.0,
+            "signal": "neutral",
+            "data_source": "none",
+        }
+        try:
+            # 获取跟踪指数对应的期货合约
+            index_code = self._get_tracking_index(etf_code)
+            if not index_code:
+                return result
+            # 尝试获取指数期货数据（以IF为例，对应上证500指数）
+            fut_code = None
+            if "399006" in index_code or "创业板指" in index_code:
+                fut_code = "IC"  # 中证500期货
+            elif "000300" in index_code or "沪深300" in index_code:
+                fut_code = "IF"  # 沪深300期货
+            elif "000016" in index_code or "上证50" in index_code:
+                fut_code = "IH"  # 上证50期货
+            elif "000852" in index_code or "中证1000" in index_code:
+                fut_code = "IM"  # 中证1000期货
+            if not fut_code:
+                return result
+            end_date = pd.Timestamp.now().strftime("%Y%m%d")
+            start_date = (pd.Timestamp.now() - pd.Timedelta(days=10)).strftime("%Y%m%d")
+            df_fut = self.pro.fut_daily(ts_code=f"{fut_code}2506.CFX", start_date=start_date, end_date=end_date)
+            if df_fut is None or df_fut.empty:
+                # 尝试上一个合约
+                df_fut = self.pro.fut_daily(ts_code=f"{fut_code}2503.CFX", start_date=start_date, end_date=end_date)
+            if df_fut is None or df_fut.empty:
+                return result
+            fut_price = float(df_fut.iloc[-1].get("close", 0))
+            # 获取现货指数价格
+            df_idx = self.pro.index_daily(ts_code=index_code, start_date=start_date, end_date=end_date)
+            if df_idx is None or df_idx.empty:
+                return result
+            spot_price = float(df_idx.iloc[-1].get("close", 0))
+            if fut_price > 0 and spot_price > 0:
+                basis = spot_price - fut_price
+                basis_pct = basis / spot_price * 100
+                result["basis"] = round(basis, 2)
+                result["basis_pct"] = round(basis_pct, 3)
+                # 负基差越大 → 期货升水 → 市场看涨
+                if basis_pct < -0.5:
+                    result["signal"] = "bullish"
+                elif basis_pct > 0.5:
+                    result["signal"] = "bearish"
+                else:
+                    result["signal"] = "neutral"
+                result["data_source"] = "fut_daily"
+            return result
+        except Exception as e:
+            logger.warning(f"[Tushare] 获取衍生品信号失败: {e}")
             return result
 
 

@@ -106,7 +106,14 @@ class DingChangEngine:
         dividend_score = self.dividend.score(etf_code, df_daily, real_data.get("dividend"))
         valuation_score = self.valuation.score(etf_code, df_daily, real_data.get("valuation"))
         profitability_score = self.profitability.score(etf_code, df_daily, real_data.get("profitability"))
-        capital_flow_score = self.capital_flow.score(etf_code, df_daily, real_data.get("capital_flow"))
+        # P1: 资金流评分需要北向资金+机构持仓+衍生品信号
+        capital_flow_input = {
+            **(real_data.get("capital_flow") or {}),
+            "northbound_flow": real_data.get("northbound_flow", {}),
+            "institutional_holding": real_data.get("institutional_holding", {}),
+            "derivative_signal": real_data.get("derivative_signal", {}),
+        }
+        capital_flow_score = self.capital_flow.score(etf_code, df_daily, capital_flow_input)
         macro_score = self.macro.score(etf_code, df_daily, real_data.get("macro"))
 
         # 构建维度结果

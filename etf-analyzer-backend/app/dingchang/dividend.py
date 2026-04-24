@@ -95,18 +95,8 @@ class DividendQuality:
         return "growth"
 
     def _score_income_etf(self, etf_code: str, df_daily: pd.DataFrame, real_data: Optional[Dict] = None) -> DividendScore:
-        """收益型ETF评分（有分红）"""
+        """收益型ETF评分（有分红）— 丁昶报告阈值版"""
         close_prices = df_daily['close']
-
-        # 计算总回报
-        total_return = (close_prices.iloc[-1] / close_prices.iloc[0] - 1) if close_prices.iloc[0] > 0 else 0
-
-        # 年化收益率
-        years = len(df_daily) / 252
-        if years > 0 and close_prices.iloc[0] > 0:
-            cagr = (close_prices.iloc[-1] / close_prices.iloc[0]) ** (1 / years) - 1
-        else:
-            cagr = 0
 
         # 优先使用真实股息率数据
         real_dividend_yield = 0.0
@@ -116,54 +106,110 @@ class DividendQuality:
             real_yield_source = real_data.get("yield_source", "真实数据")
             logger.info(f"[DividendQuality] 使用真实股息率 {real_dividend_yield:.2f}% (来源: {real_yield_source})")
 
-        # 估算股息率（简化：假设价格增长主要来自分红再投资）
-        estimated_yield = max(0, cagr * 0.4) * 100  # 假设40%回报来自分红
+        # 股息率水平 (10分) — 丁昶报告阈值
+        dividend_yield = real_dividend_yield
+        if dividend_yield > 7:
+            yield_score = 10
+        elif dividend_yield > 5:
+            yield_score = 8
+        elif dividend_yield > 4:
+            yield_score = 6
+        elif dividend_yield > 3:
+            yield_score = 3
+        else:
+            yield_score = 0
 
-        # 如果有真实数据，用真实股息率；否则用估算值
-        dividend_yield = real_dividend_yield if real_dividend_yield > 0 else estimated_yield
+        # 股息增长率 (8分)
+        div_growth = 0.0
+        growth_source = "估算"
+        if real_data and real_data.get("dividend_growth_3y", 0) != 0:
+            div_growth = real_data["dividend_growth_3y"]
+            growth_source = "真实数据"
+        else:
+            # 回退：基于价格趋势估算
+            years = len(df_daily) / 252
+            if years > 1 and close_prices.iloc[0] > 0:
+                cagr = (close_prices.iloc[-1] / close_prices.iloc[0]) ** (1 / years) - 1
+                div_growth = max(0, cagr * 100 * 0.5)  # 假设一半回报来自分红增长
 
-        # 5年平均（简化用全部历史替代）
-        yield_5y = dividend_yield
+        if div_growth > 10:
+            growth_score = 8
+        elif div_growth > 5:
+            growth_score = 6
+        elif div_growth > 0:
+            growth_score = 3
+        else:
+            growth_score = 0
 
-        # 分红持续性评分（基于收益稳定性）
-        monthly_returns = close_prices.pct_change(periods=20).dropna()
-        positive_months = (monthly_returns > 0).sum() / len(monthly_returns) if len(monthly_returns) > 0 else 0.5
-        payout_consistency = positive_months
+        # 股息支付率稳定性 (7分)
+        payout_stability = 0.0
+        if real_data and real_data.get("payout_ratio_stability", 0) > 0:
+            payout_stability = real_data["payout_ratio_stability"]
+            # 已经是0-1的稳定性评分，直接映射
+            payout_score = round(payout_stability * 7)
+        else:
+            # 回退：基于收益稳定性估算
+            returns = close_prices.pct_change().dropna()
+            if len(returns) >= 60:
+                cv = returns.std() / (abs(returns.mean()) + 1e-6)
+                payout_stability = max(0, min(1, 1.0 / (1 + cv * 5)))
+                payout_score = round(payout_stability * 7)
+            else:
+                payout_score = 3  # 中性
 
-        # 分红质量评分
-        distribution_quality = min(1.0, dividend_yield / 5.0) if dividend_yield > 0 else 0.0
+        # 股息持续性 (5分)
+        continuity = 0
+        if real_data and real_data.get("dividend_continuity_years", 0) > 0:
+            continuity = real_data["dividend_continuity_years"]
+        if continuity > 10:
+            cont_score = 5
+        elif continuity >= 5:
+            cont_score = 3
+        elif continuity > 0:
+            cont_score = 1
+        else:
+            # 回退：基于历史数据长度估算
+            years = len(df_daily) / 252
+            if years > 5:
+                cont_score = 3
+            elif years > 2:
+                cont_score = 1
+            else:
+                cont_score = 0
 
-        # 资本回报效率
-        capital_return_efficiency = min(1.0, max(0, cagr * 100) / 10.0)
-
-        # 综合评分
+        # 综合子得分
         sub_scores = {
-            "dividend_yield": min(100, dividend_yield * 10),
-            "yield_5y_avg": min(100, yield_5y * 8),
-            "payout_consistency": payout_consistency * 100,
-            "distribution_quality": distribution_quality * 100,
-            "capital_return": capital_return_efficiency * 100,
+            "dividend_yield_level": yield_score * 10,   # 扩展到100分制
+            "dividend_growth": growth_score * 12.5,
+            "payout_stability": payout_score * 14.28,
+            "dividend_continuity": cont_score * 20,
         }
 
+        # 综合评分（丁昶报告权重：股息率 33.3% + 增长率 26.7% + 支付率稳定性 23.3% + 持续性 16.7%）
         composite = (
-            sub_scores["dividend_yield"] * 0.25 +
-            sub_scores["yield_5y_avg"] * 0.20 +
-            sub_scores["payout_consistency"] * 0.25 +
-            sub_scores["distribution_quality"] * 0.15 +
-            sub_scores["capital_return"] * 0.15
+            yield_score * 10 * 0.333 +
+            growth_score * 12.5 * 0.267 +
+            payout_score * 14.28 * 0.233 +
+            cont_score * 20 * 0.167
         )
 
-        desc = f"收益型ETF评估，{('真实' if real_dividend_yield > 0 else '估算')}股息率 {dividend_yield:.2f}%，分红持续性 {payout_consistency:.2f}"
+        desc = (f"收益型ETF评估，股息率 {dividend_yield:.2f}%(得分{yield_score}/10), "
+                f"增长率 {div_growth:.1f}%(得分{growth_score}/8,来源:{growth_source}), "
+                f"支付率稳定性 {payout_stability:.2f}(得分{payout_score}/7), "
+                f"连续分红{continuity}年(得分{cont_score}/5)")
         if real_dividend_yield > 0:
-            desc += f" (来源: {real_yield_source})"
+            desc += f" | 股息率来源: {real_yield_source}"
 
         return DividendScore(
             score=round(min(100, max(0, composite)), 1),
             dividend_yield=round(dividend_yield, 2),
-            yield_5y_avg=round(yield_5y, 2),
-            payout_consistency=round(payout_consistency, 3),
-            distribution_quality=round(distribution_quality, 3),
-            capital_return_efficiency=round(capital_return_efficiency, 3),
+            yield_5y_avg=round(dividend_yield, 2),
+            payout_consistency=round(payout_stability, 3),
+            distribution_quality=round(yield_score / 10, 3),
+            capital_return_efficiency=0.0,
+            dividend_growth_3y=round(div_growth, 2),
+            payout_ratio_stability=round(payout_stability, 3),
+            dividend_continuity_years=continuity,
             sub_scores=sub_scores,
             description=desc
         )
