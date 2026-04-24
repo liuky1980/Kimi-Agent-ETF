@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.fusion_endpoints import fusion_router
 from app.api.router import router
 from app.config import settings
 
@@ -79,6 +80,7 @@ app.add_middleware(
 # ────────────────────────────── 路由注册 ──────────────────────────────
 
 app.include_router(router, tags=["ETF分析"])
+app.include_router(fusion_router, tags=["融合分析"])
 
 
 # ────────────────────────────── 根路由 ──────────────────────────────

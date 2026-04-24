@@ -1,0 +1,137 @@
+# 融合引擎参数配置文件
+# ========================
+# 五维融合决策引擎的全局参数配置。
+# 本文件为静态配置，可通过环境变量覆盖（优先级：环境变量 > 本文件 > 代码默认值）。
+#
+# 五维融合公式:
+#   raw_position = strategic_cap * valuation_weight * tactical_ratio * confidence * vol_coeff
+#   final_position = min(raw_position, 0.25)
+
+# ────────────────────────────── 引擎主开关 ──────────────────────────────
+engine:
+  fusion_enabled: true
+  macro_layer_enabled: true
+  sentiment_layer_enabled: true
+  volatility_layer_enabled: true
+
+# ────────────────────────────── 仓位限制 ──────────────────────────────
+position_limit:
+  single_etf_max: 0.25    # 单ETF仓位上限（占投资组合比例）
+  sector_max: 0.50        # 单行业仓位上限
+  total_max: 1.00         # 总仓位上限
+  leverage_max: 1.50      # 最大杠杆倍数
+
+# ────────────────────────────── 宏观层配置 ──────────────────────────────
+macro_layer:
+  # 宏观周期代码 → 仓位限制映射
+  cycle_position_limit_map:
+    I:   1.00   # 复苏期 — 满仓（股票型ETF）
+    II:  0.70   # 过热期 — 限制70%
+    III: 0.40   # 滞胀期 — 限制40%
+    IV:  0.20   # 衰退期 — 限制20%
+
+  # 资产类别推荐（按周期）
+  asset_favor_by_cycle:
+    I:   ["股票型ETF", "商品型ETF", "新兴市场ETF", "周期行业ETF"]
+    II:  ["商品型ETF", "周期行业ETF", "新兴市场ETF"]
+    III: ["债券型ETF", "防御型ETF", "现金管理ETF"]
+    IV:  ["债券型ETF", "国债ETF", "现金管理ETF", "红利低波ETF"]
+
+  # 资产类别回避（按周期）
+  asset_avoid_by_cycle:
+    I:   ["长期国债ETF", "防御性行业ETF"]
+    II:  ["长期国债ETF", "防御性行业ETF"]
+    III: ["股票型ETF", "周期行业ETF", "新兴市场ETF"]
+    IV:  ["股票型ETF", "周期行业ETF", "新兴市场ETF", "商品型ETF"]
+
+  risk_free_rate: 0.025
+  risk_premium_required: 0.030
+
+# ────────────────────────────── 情绪层配置 ──────────────────────────────
+sentiment_layer:
+  # 情绪等级 → 置信度映射（百分比 0~100）
+  grade_confidence_map:
+    A: 85.0   # A级（贪婪/极度乐观）→ 高置信度
+    B: 65.0   # B级（中性偏多）→ 中等置信度
+    C: 45.0   # C级（中性偏空）→ 低置信度
+    D: 25.0   # D级（恐惧/极度悲观）→ 极低置信度
+
+  # 贪婪恐惧指数阈值
+  greed_fear_threshold_high: 75.0    # ≥75 为贪婪区间
+  greed_fear_threshold_low: 25.0     # ≤25 为恐惧区间
+
+  # 各子项权重（情绪指数计算）
+  component_weights:
+    greed_fear_index: 0.30
+    a_share_sentiment: 0.20
+    northbound_sentiment: 0.20
+    margin_sentiment: 0.15
+    options_skew: 0.15
+
+# ────────────────────────────── 波动率层配置 ──────────────────────────────
+volatility_layer:
+  # 波动率区间 → 仓位系数映射
+  regime_coefficient_map:
+    low:     1.00   # 低波动率 — 正常仓位
+    normal:  0.85   # 正常波动率 — 略微降低
+    high:    0.60   # 高波动率 — 显著降低
+    extreme: 0.30   # 极端波动率 — 大幅降低
+
+  # 历史波动率(HV)阈值（年化）
+  hv_extreme_threshold: 0.40   # ≥40% 为极端波动率
+  hv_high_threshold: 0.25      # ≥25% 为高波动率
+  hv_low_threshold: 0.10       # ≤10% 为低波动率
+
+  # ATR相关配置
+  atr_period: 14
+  atr_stop_multiplier: 2.0    # 止损 = 入场价 - ATR * 2
+
+# ────────────────────────────── 战术比例映射 ──────────────────────────────
+tactical_ratio_map:
+  # 缠论级别 → 战术比例
+  # 周线级别信号 → 大比例仓位（趋势性强）
+  # 日线级别信号 → 中等比例仓位
+  # 30分钟级别信号 → 小比例仓位（噪音多）
+  weekly: 0.60
+  daily:  0.30
+  30min:  0.10
+
+# ────────────────────────────── 持仓周期映射 ──────────────────────────────
+holding_period_map:
+  # 缠论级别 → 预期持仓周期描述
+  weekly: "日线级别预期8-12周"
+  daily:  "日线级别预期2-4周"
+  30min:  "日线级别预期3-5日"
+
+# ────────────────────────────── Action映射规则 ──────────────────────────────
+action_rules:
+  # 规则按优先级排序，匹配第一条适用的规则
+  - name: "宏观冻结"
+    condition: "macro_cycle == 'IV'"
+    action: "冻结，仅记录不执行"
+    priority: 1
+
+  - name: "情绪D级或宏观限制"
+    condition: "sentiment_grade == 'D' or macro_limit < 0.2"
+    action: "屏蔽信号，反向对冲或空仓"
+    priority: 2
+
+  - name: "情绪C级"
+    condition: "sentiment_grade == 'C'"
+    action: "试仓1/3，观察3日"
+    priority: 3
+
+  - name: "情绪B级"
+    condition: "sentiment_grade == 'B'"
+    action: "正常执行，收紧止损"
+    priority: 4
+
+  - name: "情绪A级+宏观允许>70%"
+    condition: "sentiment_grade == 'A' and macro_limit > 0.7"
+    action: "满仓执行，允许杠杆"
+    priority: 5
+
+  - name: "情绪A级+宏观限制"
+    condition: "sentiment_grade == 'A'"
+    action: "正常执行，收紧止损"
+    priority: 6
