@@ -79,12 +79,77 @@ function normalizeDingChang(raw: Record<string, unknown>): DingChangResult | nul
   const get = (k: string) => (raw[k] !== undefined ? raw[k] : raw[k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]);
 
   const dimsRaw = get('dimensions') as Record<string, unknown> || {};
-  const getDim = (k: string) => (dimsRaw[k] || dimsRaw[k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]) as Record<string, number> | undefined;
+
+  // 后端维度名 → 前端维度名的映射
+  const dimNameMap: Record<string, string> = {
+    dividend: 'dividendQuality',
+    valuation: 'valuationSafety',
+    profitability: 'profitability',
+    capital_flow: 'capitalFlow',
+    macro: 'macroFit',
+  };
+
+  // 获取维度数据（支持后端原始键名和前端键名）
+  const getDim = (frontendKey: string): Record<string, unknown> | undefined => {
+    // 直接查找前端键名
+    if (dimsRaw[frontendKey] !== undefined) return dimsRaw[frontendKey] as Record<string, unknown>;
+    // 查找后端原始键名
+    const backendKey = Object.keys(dimNameMap).find(k => dimNameMap[k] === frontendKey);
+    if (backendKey && dimsRaw[backendKey] !== undefined) return dimsRaw[backendKey] as Record<string, unknown>;
+    return undefined;
+  };
+
+  // 子字段映射表：前端键名 → 后端键名
+  const subKeyMap: Record<string, Record<string, string>> = {
+    dividendQuality: {
+      score: 'score',
+      yield: 'dividend_yield',
+      growth: 'yield_5y_avg',
+      stability: 'distribution_quality',
+      continuity: 'payout_consistency',
+    },
+    valuationSafety: {
+      score: 'score',
+      pb: 'pb',
+      pbPercentile: 'pb_percentile',
+      pe: 'pe_ttm',
+      peg: 'peg',
+      spread: 'spread_risk_free',
+    },
+    profitability: {
+      score: 'score',
+      roe: 'roe',
+      roic: 'roic',
+      volatility: 'earnings_stability',
+      cashCoverage: 'cash_flow_quality',
+    },
+    capitalFlow: {
+      score: 'score',
+      insuranceChange: 'institutional_change',
+      etfFlow: 'fund_flow_20d',
+      researchFreq: 'volume_trend',
+      northbound: 'aum_growth_3m',
+    },
+    macroFit: {
+      score: 'score',
+      cycleMatch: 'cycle_fit_score',
+      rateEnv: 'rate_environment_fit',
+      policy: 'policy_support',
+      globalVal: 'global_comparison',
+    },
+  };
 
   const getSubDim = (dimKey: string, subKey: string): number => {
     const dim = getDim(dimKey);
     if (!dim) return 0;
-    return Number(dim[subKey] !== undefined ? dim[subKey] : dim[subKey.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]) || 0;
+    const backendSubKey = subKeyMap[dimKey]?.[subKey] || subKey;
+    const val = dim[backendSubKey];
+    if (val === undefined) {
+      // fallback: 尝试下划线版本
+      const snakeKey = subKey.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
+      return Number(dim[snakeKey]) || 0;
+    }
+    return Number(val) || 0;
   };
 
   const result: DingChangResult = {
