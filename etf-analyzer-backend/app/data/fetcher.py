@@ -79,6 +79,80 @@ class ETFDataFetcher:
             logger.error(f"获取ETF {code} 日线数据失败: {e}")
             raise DataFetchError(f"获取ETF {code} 日线数据失败: {e}") from e
 
+    def get_etf_fiveday(self, code: str, start: str, end: str) -> pd.DataFrame:
+        """获取ETF五日线历史行情（通过日线重采样，前复权）
+
+        Parameters
+        ----------
+        code : str
+            ETF代码，如 '510300'
+        start : str
+            起始日期，格式 'YYYYMMDD'
+        end : str
+            结束日期，格式 'YYYYMMDD'
+
+        Returns
+        -------
+        pd.DataFrame
+            列: date, open, close, high, low, volume, amount,
+               amplitude, pct_change, change, turnover
+        """
+        try:
+            logger.info(f"获取ETF {code} 周线数据: {start} ~ {end}")
+            df = ak.fund_etf_hist_em(
+                symbol=code,
+                period="daily",
+                start_date=start,
+                end_date=end,
+                adjust="qfq"
+            )
+            if df.empty:
+                logger.warning(f"ETF {code} 未返回周线数据")
+                return pd.DataFrame()
+
+            df.columns = [
+                'date', 'open', 'close', 'high', 'low', 'volume',
+                'amount', 'amplitude', 'pct_change', 'change', 'turnover'
+            ]
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.sort_values('date').reset_index(drop=True)
+            # 5日重采样
+            df = df.set_index('date')
+            df_5d = df.resample('5D').agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum',
+                'amount': 'sum',
+                'amplitude': 'mean',
+                'pct_change': 'sum',
+                'change': 'sum',
+                'turnover': 'mean',
+            }).dropna()
+            df_5d = df_5d.reset_index()
+            logger.info(f"成功获取ETF {code} 五日线数据，共 {len(df_5d)} 条")
+            return df_5d
+
+        except Exception as e:
+            logger.error(f"获取ETF {code} 周线数据失败: {e}")
+            raise DataFetchError(f"获取ETF {code} 周线数据失败: {e}") from e
+
+    def get_etf_hourly(self, code: str) -> pd.DataFrame:
+        """获取ETF小时线历史行情（60分钟，前复权）
+
+        Parameters
+        ----------
+        code : str
+            ETF代码，如 '510300'
+
+        Returns
+        -------
+        pd.DataFrame
+            标准化后的小时K线数据
+        """
+        return self.get_etf_minute(code, period="60")
+
     def get_etf_minute(self, code: str, period: str = "30") -> pd.DataFrame:
         """获取ETF分钟级历史行情
 
@@ -335,17 +409,18 @@ class ETFDataFetcher:
         Returns
         -------
         dict
-            {'daily': DataFrame, '30min': DataFrame, '5min': DataFrame}
+            {'weekly': DataFrame, 'daily': DataFrame, 'hourly': DataFrame}
         """
         from datetime import datetime, timedelta
 
         end_date = datetime.now().strftime("%Y%m%d")
-        start_daily = (datetime.now() - timedelta(days=730)).strftime("%Y%m%d")
+        start_weekly = (datetime.now() - timedelta(days=1825)).strftime("%Y%m%d")  # 5年
+        start_daily = (datetime.now() - timedelta(days=730)).strftime("%Y%m%d")   # 2年
 
         result = {}
+        result['fiveday'] = self.get_etf_fiveday(code, start_weekly, end_date)
         result['daily'] = self.get_etf_daily(code, start_daily, end_date)
-        result['30min'] = self.get_etf_minute(code, "30")
-        result['5min'] = self.get_etf_minute(code, "5")
+        result['hourly'] = self.get_etf_hourly(code)
 
         return result
 
@@ -434,6 +509,12 @@ class UnifiedDataFetcher:
     # ── 代理方法 ──
     def get_etf_daily(self, code: str, start: str, end: str) -> pd.DataFrame:
         return self._call_with_fallback('get_etf_daily', code, start, end)
+
+    def get_etf_fiveday(self, code: str, start: str, end: str) -> pd.DataFrame:
+        return self._call_with_fallback('get_etf_fiveday', code, start, end)
+
+    def get_etf_hourly(self, code: str) -> pd.DataFrame:
+        return self._call_with_fallback('get_etf_hourly', code)
 
     def get_etf_minute(self, code: str, period: str = "30") -> pd.DataFrame:
         return self._call_with_fallback('get_etf_minute', code, period)

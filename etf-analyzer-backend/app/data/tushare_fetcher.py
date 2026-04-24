@@ -607,17 +607,21 @@ class TushareETFDataFetcher:
         Returns
         -------
         dict
-            {'daily': DataFrame, '30min': DataFrame, '5min': DataFrame}
+            {'weekly': DataFrame, 'daily': DataFrame, 'hourly': DataFrame}
         """
         end_date = pd.Timestamp.now().strftime("%Y%m%d")
+        start_weekly = (
+            pd.Timestamp.now() - pd.Timedelta(days=1825)
+        ).strftime("%Y%m%d")
         start_daily = (
             pd.Timestamp.now() - pd.Timedelta(days=730)
         ).strftime("%Y%m%d")
 
         result = {}
+        # 周线：通过日线重采样构建（tushare无直接周线接口，用日线代替）
+        result["fiveday"] = self.get_etf_daily(code, start_weekly, end_date)
         result["daily"] = self.get_etf_daily(code, start_daily, end_date)
-        result["30min"] = self.get_etf_minute(code, "30")
-        result["5min"] = self.get_etf_minute(code, "5")
+        result["hourly"] = self.get_etf_minute(code, "60")
 
         return result
 

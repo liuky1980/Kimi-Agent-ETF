@@ -5,9 +5,9 @@
 提高交易决策的可靠性。
 
 多周期共振体系：
-- 日线周期：确定大趋势方向
-- 30分钟周期：识别结构、中枢和买卖点
-- 5分钟周期：精确入场时机
+- 周线周期：确定大趋势方向
+- 日线周期：识别结构、中枢和买卖点
+- 小时线周期：精确入场时机
 
 共振等级：
 - Strong (90-100): 三周期完全一致
@@ -45,20 +45,20 @@ class ResonanceAnalyzer:
 
     def calculate_resonance(
         self,
+        fiveday_signal: Dict,
         daily_signal: Dict,
-        min30_signal: Dict,
-        min5_signal: Dict
+        hourly_signal: Dict
     ) -> ResonanceResult:
         """计算多周期共振
 
         Parameters
         ----------
+        fiveday_signal : dict
+            周线周期分析结果，包含 trend, confidence, centers, divergence, bs_point
         daily_signal : dict
-            日线周期分析结果，包含 trend, confidence, centers, divergence, bs_point
-        min30_signal : dict
-            30分钟周期分析结果
-        min5_signal : dict
-            5分钟周期分析结果
+            日线周期分析结果
+        hourly_signal : dict
+            小时线周期分析结果
 
         Returns
         -------
@@ -66,32 +66,32 @@ class ResonanceAnalyzer:
             共振分析结果
         """
         # 构建单周期信号
+        fiveday = self._parse_signal(fiveday_signal, "fiveday")
         daily = self._parse_signal(daily_signal, "daily")
-        min30 = self._parse_signal(min30_signal, "30min")
-        min5 = self._parse_signal(min5_signal, "5min")
+        hourly = self._parse_signal(hourly_signal, "hourly")
 
         # 计算各周期独立得分
+        fiveday_score = self._score_timeframe(weekly)
         daily_score = self._score_timeframe(daily)
-        min30_score = self._score_timeframe(min30)
-        min5_score = self._score_timeframe(min5)
+        hourly_score = self._score_timeframe(hourly)
 
+        weekly.resonance_score = fiveday_score
         daily.resonance_score = daily_score
-        min30.resonance_score = min30_score
-        min5.resonance_score = min5_score
+        hourly.resonance_score = hourly_score
 
         # 计算综合共振得分
-        composite = self._calc_composite_score(daily, min30, min5)
+        composite = self._calc_composite_score(weekly, daily, hourly)
 
         # 确定共振等级
-        level, alignment = self._determine_level(daily, min30, min5, composite)
+        level, alignment = self._determine_level(weekly, daily, hourly, composite)
 
         # 生成建议
-        recommendation = self._generate_recommendation(daily, min30, min5, composite, level)
+        recommendation = self._generate_recommendation(weekly, daily, hourly, composite, level)
 
         return ResonanceResult(
+            weekly=weekly,
             daily=daily,
-            min30=min30,
-            min5=min5,
+            hourly=hourly,
             composite_score=round(composite, 1),
             level=level,
             alignment=alignment,
@@ -100,20 +100,20 @@ class ResonanceAnalyzer:
 
     def calculate_simple_resonance(
         self,
+        fiveday_trend: str,
         daily_trend: str,
-        min30_trend: str,
-        min5_trend: str,
+        hourly_trend: str,
+        fiveday_divergence: bool = False,
         daily_divergence: bool = False,
-        min30_divergence: bool = False,
-        min5_divergence: bool = False
+        hourly_divergence: bool = False
     ) -> dict:
         """简化版共振计算（用于快速评估）
 
         Parameters
         ----------
-        daily_trend, min30_trend, min5_trend : str
+        fiveday_trend, daily_trend, hourly_trend : str
             各周期趋势方向 'up'/'down'/'consolidation'
-        daily_divergence, min30_divergence, min5_divergence : bool
+        fiveday_divergence, daily_divergence, hourly_divergence : bool
             各周期是否有背驰
 
         Returns
@@ -121,8 +121,8 @@ class ResonanceAnalyzer:
         dict
             简化共振结果
         """
-        trends = [daily_trend, min30_trend, min5_trend]
-        divergences = [daily_divergence, min30_divergence, min5_divergence]
+        trends = [fiveday_trend, daily_trend, hourly_trend]
+        divergences = [fiveday_divergence, daily_divergence, hourly_divergence]
 
         # 趋势一致性
         up_count = sum(1 for t in trends if t == "up")
@@ -165,12 +165,12 @@ class ResonanceAnalyzer:
 
         # 周期对齐描述
         aligned_periods = []
+        if fiveday_trend == direction:
+            aligned_periods.append("五日线")
         if daily_trend == direction:
             aligned_periods.append("日线")
-        if min30_trend == direction:
-            aligned_periods.append("30分钟")
-        if min5_trend == direction:
-            aligned_periods.append("5分钟")
+        if hourly_trend == direction:
+            aligned_periods.append("小时线")
 
         return {
             "composite_score": round(composite, 1),
@@ -178,9 +178,9 @@ class ResonanceAnalyzer:
             "direction": direction,
             "aligned_periods": aligned_periods,
             "alignment": f"{'/'.join(aligned_periods)} 周期共振 ({len(aligned_periods)}/3)",
+            "fiveday_score": base_score if fiveday_trend == direction else 30,
             "daily_score": base_score if daily_trend == direction else 30,
-            "min30_score": base_score if min30_trend == direction else 30,
-            "min5_score": base_score if min5_trend == direction else 30,
+            "hourly_score": base_score if hourly_trend == direction else 30,
             "recommendation": self._quick_recommendation(direction, level)
         }
 
@@ -236,20 +236,20 @@ class ResonanceAnalyzer:
 
     def _calc_composite_score(
         self,
+        fiveday: TimeframeSignal,
         daily: TimeframeSignal,
-        min30: TimeframeSignal,
-        min5: TimeframeSignal
+        hourly: TimeframeSignal
     ) -> float:
         """计算综合共振得分
 
         权重分配：
-        - 日线：50%（趋势决定）
-        - 30分钟：30%（结构识别）
-        - 5分钟：20%（精确时机）
+        - 周线：50%（大趋势决定）
+        - 日线：30%（结构识别）
+        - 小时线：20%（精确时机）
 
         Parameters
         ----------
-        daily, min30, min5 : TimeframeSignal
+        weekly, daily, hourly : TimeframeSignal
             三个周期的信号
 
         Returns
@@ -259,13 +259,13 @@ class ResonanceAnalyzer:
         """
         # 基础加权得分
         base_score = (
-            daily.resonance_score * 0.5 +
-            min30.resonance_score * 0.3 +
-            min5.resonance_score * 0.2
+            weekly.resonance_score * 0.5 +
+            daily.resonance_score * 0.3 +
+            hourly.resonance_score * 0.2
         )
 
         # 方向一致性加成
-        trends = [daily.trend, min30.trend, min5.trend]
+        trends = [fiveday.trend, daily.trend, hourly.trend]
         up_count = sum(1 for t in trends if t == "up")
         down_count = sum(1 for t in trends if t == "down")
         max_aligned = max(up_count, down_count)
@@ -280,9 +280,9 @@ class ResonanceAnalyzer:
 
         # 背驰共振加成
         divergence_count = sum([
+            fiveday.divergence_present,
             daily.divergence_present,
-            min30.divergence_present,
-            min5.divergence_present
+            hourly.divergence_present
         ])
         divergence_bonus = divergence_count * 3
 
@@ -291,13 +291,13 @@ class ResonanceAnalyzer:
 
     def _determine_level(
         self,
+        fiveday: TimeframeSignal,
         daily: TimeframeSignal,
-        min30: TimeframeSignal,
-        min5: TimeframeSignal,
+        hourly: TimeframeSignal,
         composite: float
     ) -> tuple:
         """确定共振等级和描述"""
-        trends = [daily.trend, min30.trend, min5.trend]
+        trends = [fiveday.trend, daily.trend, hourly.trend]
         up_count = sum(1 for t in trends if t == "up")
         down_count = sum(1 for t in trends if t == "down")
 
@@ -316,12 +316,12 @@ class ResonanceAnalyzer:
         # 周期对齐描述
         aligned = []
         majority = "up" if up_count >= down_count else "down"
+        if fiveday.trend == majority:
+            aligned.append("五日线")
         if daily.trend == majority:
             aligned.append("日线")
-        if min30.trend == majority:
-            aligned.append("30分钟")
-        if min5.trend == majority:
-            aligned.append("5分钟")
+        if hourly.trend == majority:
+            aligned.append("小时线")
 
         alignment = f"{'、'.join(aligned)} 周期方向一致 ({len(aligned)}/3)"
         if len(aligned) == 3:
@@ -333,14 +333,14 @@ class ResonanceAnalyzer:
 
     def _generate_recommendation(
         self,
+        fiveday: TimeframeSignal,
         daily: TimeframeSignal,
-        min30: TimeframeSignal,
-        min5: TimeframeSignal,
+        hourly: TimeframeSignal,
         composite: float,
         level: str
     ) -> str:
         """生成共振策略建议"""
-        trends = [daily.trend, min30.trend, min5_trend := min5.trend]
+        trends = [fiveday.trend, daily.trend, hourly.trend]
         up_count = sum(1 for t in trends if t == "up")
         down_count = sum(1 for t in trends if t == "down")
 
@@ -351,9 +351,9 @@ class ResonanceAnalyzer:
         elif composite >= 50:
             return "结构清晰但周期存在分歧，建议观察等待"
         elif up_count >= 2:
-            return "日线趋势向上但短周期不配合，谨慎追涨"
+            return "五日线趋势向上但短周期不配合，谨慎追涨"
         elif down_count >= 2:
-            return "日线趋势向下但短周期不配合，谨慎杀跌"
+            return "五日线趋势向下但短周期不配合，谨慎杀跌"
         else:
             return "多周期震荡，方向不明，建议观望"
 

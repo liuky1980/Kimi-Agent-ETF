@@ -256,7 +256,7 @@ export default function Home({ onNavigate }: HomeProps) {
                     {etf.price !== undefined && (
                       <div className="text-xs text-slate-500">
                         {etf.price.toFixed(3)}
-                        <span className={cn('ml-1', (etf.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                        <span className={cn('ml-1', (etf.change_pct ?? 0) >= 0 ? 'text-red-400' : 'text-green-400')}>
                           {(etf.change_pct ?? 0) >= 0 ? '+' : ''}{etf.change_pct?.toFixed(2) ?? '--'}%
                         </span>
                       </div>

@@ -76,22 +76,23 @@ async def analyze_etf(request: ETFAnalysisRequest):
         if df_daily.empty:
             raise HTTPException(status_code=404, detail=f"未找到ETF {etf_code} 的数据")
 
-        # 2. 获取分钟级数据（如果请求包含）
-        df_30min = None
-        df_5min = None
+        # 2. 获取多周期数据
+        df_fiveday = None
+        df_hourly = None
         if request.include_minute:
             try:
-                df_30min = data_fetcher.get_etf_minute(etf_code, "30")
-                df_5min = data_fetcher.get_etf_minute(etf_code, "5")
+                start_weekly = (datetime.now() - timedelta(days=1825)).strftime("%Y%m%d")
+                df_fiveday = data_fetcher.get_etf_fiveday(etf_code, start_weekly, end_date)
+                df_hourly = data_fetcher.get_etf_hourly(etf_code)
             except Exception as e:
-                logger.warning(f"获取分钟数据失败: {e}")
+                logger.warning(f"获取多周期数据失败: {e}")
 
-        # 3. 运行李彪分析框架分析
+        # 3. 运行李栋分析框架分析
         try:
             chanlun_result = chanlun_engine.analyze(
+                df_fiveday=df_fiveday,
                 df_daily=df_daily,
-                df_30min=df_30min,
-                df_5min=df_5min,
+                df_hourly=df_hourly,
                 etf_code=etf_code,
                 etf_name=""
             )
@@ -266,18 +267,19 @@ async def get_chanlun_analysis(code: str):
         if df_daily.empty:
             raise HTTPException(status_code=404, detail=f"未找到ETF {code} 数据")
 
-        # 获取分钟数据
+        # 获取多周期数据
         try:
-            df_30min = data_fetcher.get_etf_minute(code, "30")
-            df_5min = data_fetcher.get_etf_minute(code, "5")
+            start_weekly = (datetime.now() - timedelta(days=1825)).strftime("%Y%m%d")
+            df_fiveday = data_fetcher.get_etf_fiveday(code, start_weekly, end_date)
+            df_hourly = data_fetcher.get_etf_hourly(code)
         except Exception:
-            df_30min = None
-            df_5min = None
+            df_fiveday = None
+            df_hourly = None
 
         result = chanlun_engine.analyze(
+            df_fiveday=df_fiveday,
             df_daily=df_daily,
-            df_30min=df_30min,
-            df_5min=df_5min,
+            df_hourly=df_hourly,
             etf_code=code
         )
         return result.model_dump()

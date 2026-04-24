@@ -22,12 +22,12 @@ export interface ChanlunResult {
     description: string;
   }>;
   dailyResonance: number;
-  min30Resonance: number;
-  min5Resonance: number;
+  fivedayResonance: number;
+  hourlyResonance: number;
   compositeResonance: number;
   recommendation: string;
   macdHistory: Array<{ date: string; macd: number; signal: number; histogram: number }>;
-  priceHistory: Array<{ date: string; price: number }>;
+  priceHistory: Array<{ date: string; close: number; open?: number; high?: number; low?: number; volume?: number }>;
 }
 
 export interface DingChangResult {

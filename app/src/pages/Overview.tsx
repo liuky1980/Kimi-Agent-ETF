@@ -64,8 +64,8 @@ function normalizeChanlun(raw: Record<string, unknown>): ChanlunResult | null {
     macdAreaPrevious: Number(get('macdAreaPrevious')) || 0,
     buySellPoints: (get('buySellPoints') as ChanlunResult['buySellPoints']) || [],
     dailyResonance: Number(get('dailyResonance')) || 0,
-    min30Resonance: Number(get('min30Resonance')) || 0,
-    min5Resonance: Number(get('min5Resonance')) || 0,
+    fivedayResonance: Number(get('fivedayResonance')) || 0,
+    hourlyResonance: Number(get('hourlyResonance')) || 0,
     compositeResonance: Number(get('compositeResonance')) || 0,
     recommendation: (get('recommendation') as string) || '',
     macdHistory: (get('macdHistory') as ChanlunResult['macdHistory']) || [],
@@ -494,8 +494,8 @@ export default function Overview({ initialCode }: OverviewProps) {
                     <span className="text-slate-400">李彪:</span>
                     <span className={cn(
                       'font-medium',
-                      clData.trendPosition === '上升趋势' ? 'text-emerald-400' :
-                      clData.trendPosition === '下跌趋势' ? 'text-rose-400' :
+                      clData.trendPosition === '上升趋势' ? 'text-red-400' :
+                      clData.trendPosition === '下跌趋势' ? 'text-green-400' :
                       'text-amber-400'
                     )}>
                       {clData.trendPosition}
@@ -529,13 +529,13 @@ export default function Overview({ initialCode }: OverviewProps) {
                   label="趋势位置"
                   value={clData.trendPosition}
                   icon={clData.trendPosition === '上升趋势' ? TrendingUp : clData.trendPosition === '下跌趋势' ? TrendingDown : AlertTriangle}
-                  color={clData.trendPosition === '上升趋势' ? 'emerald' : clData.trendPosition === '下跌趋势' ? 'rose' : 'amber'}
+                  color={clData.trendPosition === '上升趋势' ? 'red' : clData.trendPosition === '下跌趋势' ? 'green' : 'amber'}
                 />
                 <SummaryRow
                   label="分型状态"
                   value={clData.bottomFractal ? '底分型形成' : clData.topFractal ? '顶分型形成' : '无明确分型'}
                   icon={CheckCircle2}
-                  color={clData.bottomFractal ? 'emerald' : clData.topFractal ? 'rose' : 'slate'}
+                  color={clData.bottomFractal ? 'red' : clData.topFractal ? 'green' : 'slate'}
                 />
                 <SummaryRow
                   label="背驰信号"
@@ -731,6 +731,8 @@ function SummaryRow({
   const colorMap: Record<string, string> = {
     emerald: 'text-emerald-400',
     rose: 'text-rose-400',
+    red: 'text-red-400',
+    green: 'text-green-400',
     amber: 'text-amber-400',
     sky: 'text-sky-400',
     slate: 'text-slate-400',
@@ -785,6 +787,8 @@ function ActionCard({
   const colorMap: Record<string, { border: string; bg: string; text: string }> = {
     emerald: { border: 'border-emerald-500/20', bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
     rose: { border: 'border-rose-500/20', bg: 'bg-rose-500/10', text: 'text-rose-400' },
+    red: { border: 'border-red-500/20', bg: 'bg-red-500/10', text: 'text-red-400' },
+    green: { border: 'border-green-500/20', bg: 'bg-green-500/10', text: 'text-green-400' },
     amber: { border: 'border-amber-500/20', bg: 'bg-amber-500/10', text: 'text-amber-400' },
     sky: { border: 'border-sky-500/20', bg: 'bg-sky-500/10', text: 'text-sky-400' },
     slate: { border: 'border-slate-500/20', bg: 'bg-slate-500/10', text: 'text-slate-400' },

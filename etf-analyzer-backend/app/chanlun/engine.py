@@ -55,22 +55,22 @@ class ChanlunEngine:
 
     def analyze(
         self,
-        df_daily: pd.DataFrame,
-        df_30min: Optional[pd.DataFrame] = None,
-        df_5min: Optional[pd.DataFrame] = None,
+        df_fiveday: Optional[pd.DataFrame] = None,
+        df_daily: pd.DataFrame = None,
+        df_hourly: Optional[pd.DataFrame] = None,
         etf_code: str = "",
         etf_name: str = ""
     ) -> ChanlunResult:
-        """执行完整的李彪分析框架分析流程
+        """执行完整的李栋分析框架分析流程
 
         Parameters
         ----------
+        df_fiveday : Optional[pd.DataFrame]
+            周线K线数据
         df_daily : pd.DataFrame
             日线K线数据
-        df_30min : Optional[pd.DataFrame]
-            30分钟K线数据
-        df_5min : Optional[pd.DataFrame]
-            5分钟K线数据
+        df_hourly : Optional[pd.DataFrame]
+            小时线K线数据
         etf_code : str
             ETF代码
         etf_name : str
@@ -79,9 +79,9 @@ class ChanlunEngine:
         Returns
         -------
         ChanlunResult
-            完整的李彪分析框架结果
+            完整的李栋分析框架结果
         """
-        logger.info(f"开始对 {etf_code} 执行李彪分析框架分析")
+        logger.info(f"开始对 {etf_code} 执行李栋分析框架分析")
 
         # Step 1: 分型识别
         top_fractals, bottom_fractals = self.fractal_finder.find(df_daily)
@@ -121,9 +121,9 @@ class ChanlunEngine:
         )
 
         # Step 8: 多周期共振
-        if df_30min is not None and df_5min is not None:
+        if df_fiveday is not None and df_hourly is not None:
             resonance = self._calculate_multi_timeframe_resonance(
-                df_daily, df_30min, df_5min
+                df_fiveday, df_daily, df_hourly
             )
         else:
             # 只有日线数据时，使用简化共振
@@ -136,6 +136,10 @@ class ChanlunEngine:
 
         # 确定风险等级
         risk_level = self._determine_risk_level(trend_info, divergence, resonance)
+
+        # 生成历史数据用于图表展示
+        macd_history = self._build_macd_history(df_daily, macd_df)
+        price_history = self._build_price_history(df_daily)
 
         # 构建结果
         active_center = self.center_analyzer.get_active_center(centers)
@@ -170,12 +174,14 @@ class ChanlunEngine:
             macd_area_previous=divergence.macd_area_previous,
             buy_sell_points=[self._bs_point_to_dict(bp) for bp in buy_points],
             daily_resonance=resonance.get("daily_score", 50.0),
-            min30_resonance=resonance.get("min30_score", 0.0),
-            min5_resonance=resonance.get("min5_score", 0.0),
+            fiveday_resonance=resonance.get("fiveday_score", 0.0),
+            hourly_resonance=resonance.get("hourly_score", 0.0),
             composite_resonance=resonance.get("composite_score", 50.0),
             recommendation=recommendation,
             summary=self._generate_summary(trend_info, divergence, buy_points, resonance),
-            risk_level=risk_level
+            risk_level=risk_level,
+            macd_history=macd_history,
+            price_history=price_history
         )
 
         logger.info(f"李彪分析框架分析完成: {etf_code} - 趋势: {result.trend_position}, "
@@ -296,22 +302,22 @@ class ChanlunEngine:
 
     def _calculate_multi_timeframe_resonance(
         self,
+        df_fiveday: pd.DataFrame,
         df_daily: pd.DataFrame,
-        df_30min: pd.DataFrame,
-        df_5min: pd.DataFrame
+        df_hourly: pd.DataFrame
     ) -> Dict:
         """计算多周期共振"""
+        fiveday_signal = self.analyze_single_timeframe(df_fiveday)
         daily_signal = self.analyze_single_timeframe(df_daily)
-        min30_signal = self.analyze_single_timeframe(df_30min)
-        min5_signal = self.analyze_single_timeframe(df_5min)
+        hourly_signal = self.analyze_single_timeframe(df_hourly)
 
         result = self.resonance_analyzer.calculate_simple_resonance(
+            fiveday_signal["trend"],
             daily_signal["trend"],
-            min30_signal["trend"],
-            min5_signal["trend"],
+            hourly_signal["trend"],
+            fiveday_signal["divergence"],
             daily_signal["divergence"],
-            min30_signal["divergence"],
-            min5_signal["divergence"]
+            hourly_signal["divergence"]
         )
 
         return result
@@ -417,3 +423,56 @@ class ChanlunEngine:
             "trigger_date": bp.trigger_date,
             "description": bp.description
         }
+
+    def _build_macd_history(self, df: pd.DataFrame, macd_df: pd.DataFrame) -> List[Dict]:
+        """构建MACD历史数据用于前端图表
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            K线数据
+        macd_df : pd.DataFrame
+            MACD计算结果
+
+        Returns
+        -------
+        List[Dict]
+            MACD历史数据列表
+        """
+        result = []
+        dates = df['date'].astype(str).tolist()
+        for i in range(len(macd_df)):
+            if i >= len(dates):
+                break
+            result.append({
+                "date": dates[i],
+                "macd": round(float(macd_df['dif'].iloc[i]), 4),
+                "signal": round(float(macd_df['dea'].iloc[i]), 4),
+                "histogram": round(float(macd_df['macd_histogram'].iloc[i]), 4)
+            })
+        return result
+
+    def _build_price_history(self, df: pd.DataFrame) -> List[Dict]:
+        """构建价格历史数据用于前端图表
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            K线数据
+
+        Returns
+        -------
+        List[Dict]
+            价格历史数据列表
+        """
+        result = []
+        for _, row in df.iterrows():
+            result.append({
+                "date": str(row['date']),
+                "open": round(float(row['open']), 3),
+                "high": round(float(row['high']), 3),
+                "low": round(float(row['low']), 3),
+                "close": round(float(row['close']), 3),
+                "volume": int(row['volume']) if pd.notna(row.get('volume', 0)) else 0
+            })
+        return result

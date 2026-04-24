@@ -22,6 +22,11 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  AreaChart,
+  Area,
+  Line,
+  ComposedChart,
+  Legend,
 } from 'recharts';
 
 interface ChanlunPanelProps {
@@ -37,8 +42,8 @@ function TrendBadge({ position, confidence }: { position: string; confidence: nu
     <div
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium',
-        isUp && 'bg-emerald-500/15 text-emerald-400',
-        isDown && 'bg-rose-500/15 text-rose-400',
+        isUp && 'bg-red-500/15 text-red-400',
+        isDown && 'bg-green-500/15 text-green-400',
         isTransition && 'bg-amber-500/15 text-amber-400',
         !isUp && !isDown && !isTransition && 'bg-slate-500/15 text-slate-400'
       )}
@@ -47,7 +52,7 @@ function TrendBadge({ position, confidence }: { position: string; confidence: nu
       {isDown && <TrendingDown className="h-4 w-4" />}
       {isTransition && <AlertTriangle className="h-4 w-4" />}
       {!isUp && !isDown && !isTransition && <Minus className="h-4 w-4" />}
-      {position} (置信度{confidence}%)
+      {position} (置信度{(confidence * 100).toFixed(0)}%)
     </div>
   );
 }
@@ -62,9 +67,9 @@ export default function ChanlunPanel({ data }: ChanlunPanelProps) {
   ];
 
   const resonanceData = [
+    { name: '五日线', value: data.fivedayResonance },
     { name: '日线', value: data.dailyResonance },
-    { name: '30分钟', value: data.min30Resonance },
-    { name: '5分钟', value: data.min5Resonance },
+    { name: '小时线', value: data.hourlyResonance },
   ];
 
   return (
@@ -82,7 +87,7 @@ export default function ChanlunPanel({ data }: ChanlunPanelProps) {
               <span
                 className={cn(
                   'ml-2 text-sm font-medium',
-                  data.changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  data.changePercent >= 0 ? 'text-red-400' : 'text-green-400'
                 )}
               >
                 {data.changePercent >= 0 ? '+' : ''}
@@ -118,11 +123,11 @@ export default function ChanlunPanel({ data }: ChanlunPanelProps) {
               <div className="flex items-center gap-1.5 text-sm font-medium text-slate-200">
                 <span>{data.biCount}笔</span>
                 {data.biDirection === '向上' ? (
-                  <ArrowUp className="h-3.5 w-3.5 text-emerald-400" />
+                  <ArrowUp className="h-3.5 w-3.5 text-red-400" />
                 ) : (
-                  <ArrowDown className="h-3.5 w-3.5 text-rose-400" />
+                  <ArrowDown className="h-3.5 w-3.5 text-green-400" />
                 )}
-                <span className={data.biDirection === '向上' ? 'text-emerald-400' : 'text-rose-400'}>
+                <span className={data.biDirection === '向上' ? 'text-red-400' : 'text-green-400'}>
                   {data.biDirection}
                 </span>
               </div>
@@ -131,11 +136,11 @@ export default function ChanlunPanel({ data }: ChanlunPanelProps) {
               <div className="text-xs text-slate-400 mb-1">线段方向</div>
               <div className="flex items-center gap-1.5 text-sm font-medium text-slate-200">
                 {data.segmentDirection === '向上' ? (
-                  <ArrowUp className="h-3.5 w-3.5 text-emerald-400" />
+                  <ArrowUp className="h-3.5 w-3.5 text-red-400" />
                 ) : (
-                  <ArrowDown className="h-3.5 w-3.5 text-rose-400" />
+                  <ArrowDown className="h-3.5 w-3.5 text-green-400" />
                 )}
-                <span className={data.segmentDirection === '向上' ? 'text-emerald-400' : 'text-rose-400'}>
+                <span className={data.segmentDirection === '向上' ? 'text-red-400' : 'text-green-400'}>
                   {data.segmentDirection}
                 </span>
               </div>
@@ -227,7 +232,7 @@ export default function ChanlunPanel({ data }: ChanlunPanelProps) {
           </div>
           {buyPoints.length > 0 && (
             <div className="mb-3">
-              <div className="text-xs text-emerald-400 mb-2 font-medium">买入信号</div>
+              <div className="text-xs text-red-400 mb-2 font-medium">买入信号</div>
               <div className="space-y-2">
                 {buyPoints.map((point, idx) => (
                   <PointCard key={idx} point={point} type="buy" />
@@ -237,7 +242,7 @@ export default function ChanlunPanel({ data }: ChanlunPanelProps) {
           )}
           {sellPoints.length > 0 && (
             <div>
-              <div className="text-xs text-rose-400 mb-2 font-medium">卖出信号</div>
+              <div className="text-xs text-green-400 mb-2 font-medium">卖出信号</div>
               <div className="space-y-2">
                 {sellPoints.map((point, idx) => (
                   <PointCard key={idx} point={point} type="sell" />
@@ -300,6 +305,125 @@ export default function ChanlunPanel({ data }: ChanlunPanelProps) {
         </div>
       </div>
 
+      {/* Price & MACD Charts */}
+      <div className="grid grid-cols-1 gap-5">
+        {/* Price History Chart */}
+        {data.priceHistory && data.priceHistory.length > 0 && (
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="h-4 w-4 text-sky-400" />
+              <h3 className="text-sm font-semibold text-slate-200">价格走势</h3>
+            </div>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data.priceHistory} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis
+                    dataKey="date"
+                    stroke="#94a3b8"
+                    fontSize={11}
+                    tickFormatter={(v: string) => v.slice(5, 10)}
+                    minTickGap={30}
+                  />
+                  <YAxis stroke="#94a3b8" fontSize={11} domain={['auto', 'auto']} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#0f172a',
+                      border: '1px solid #1e293b',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                    }}
+                    labelStyle={{ color: '#e2e8f0' }}
+                    formatter={(value: number, name: string) => {
+                      if (name === 'close') return [value.toFixed(3), '收盘价'];
+                      return [value, name];
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="close"
+                    stroke="#0ea5e9"
+                    strokeWidth={1.5}
+                    fill="url(#priceGradient)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* MACD Indicator Chart */}
+        {data.macdHistory && data.macdHistory.length > 0 && (
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Activity className="h-4 w-4 text-amber-400" />
+              <h3 className="text-sm font-semibold text-slate-200">MACD 指标</h3>
+            </div>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={data.macdHistory} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis
+                    dataKey="date"
+                    stroke="#94a3b8"
+                    fontSize={11}
+                    tickFormatter={(v: string) => v.slice(5, 10)}
+                    minTickGap={30}
+                  />
+                  <YAxis stroke="#94a3b8" fontSize={11} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#0f172a',
+                      border: '1px solid #1e293b',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                    }}
+                    labelStyle={{ color: '#e2e8f0' }}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: '11px', color: '#94a3b8' }}
+                  />
+                  <Bar dataKey="histogram" name="MACD柱状" barSize={2} fill="#64748b" />
+                  <Line
+                    type="monotone"
+                    dataKey="macd"
+                    name="DIF"
+                    stroke="#f59e0b"
+                    strokeWidth={1.5}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="signal"
+                    name="DEA"
+                    stroke="#10b981"
+                    strokeWidth={1.5}
+                    dot={false}
+                  />
+                  {/* 零轴参考线 */}
+                  <Line
+                    type="monotone"
+                    dataKey={() => 0}
+                    name=""
+                    stroke="#475569"
+                    strokeDasharray="3 3"
+                    strokeWidth={1}
+                    dot={false}
+                    legendType="none"
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Recommendation */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
         <div className="flex items-center gap-2 mb-2">
@@ -330,15 +454,15 @@ function StructureCard({
         className={cn(
           'text-sm font-medium',
           active
-            ? type === 'success'
-              ? 'text-emerald-400'
-              : 'text-rose-400'
+            ?              type === 'success'
+              ? 'text-red-400'
+              : 'text-green-400'
             : 'text-slate-500'
         )}
       >
         {active && (
           <CheckCircle2
-            className={cn('inline h-3.5 w-3.5 mr-1', type === 'success' ? 'text-emerald-400' : 'text-rose-400')}
+            className={cn('inline h-3.5 w-3.5 mr-1', type === 'success' ? 'text-red-400' : 'text-green-400')}
           />
         )}
         {value}
@@ -358,7 +482,7 @@ function PointCard({
     <div
       className={cn(
         'flex items-center justify-between rounded-lg p-3',
-        type === 'buy' ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-rose-500/10 border border-rose-500/20'
+        type === 'buy' ? 'bg-red-500/10 border border-red-500/20' : 'bg-green-500/10 border border-green-500/20'
       )}
     >
       <div>
@@ -366,7 +490,7 @@ function PointCard({
           <span
             className={cn(
               'text-sm font-bold',
-              type === 'buy' ? 'text-emerald-400' : 'text-rose-400'
+              type === 'buy' ? 'text-red-400' : 'text-green-400'
             )}
           >
             {point.type}
@@ -379,14 +503,14 @@ function PointCard({
         <div
           className={cn(
             'text-xs font-medium px-2 py-0.5 rounded-full',
-            point.confidence >= 80
+            point.confidence >= 0.8
               ? 'bg-emerald-500/20 text-emerald-400'
-              : point.confidence >= 60
+              : point.confidence >= 0.6
                 ? 'bg-amber-500/20 text-amber-400'
                 : 'bg-slate-500/20 text-slate-400'
           )}
         >
-          {point.confidence}%
+          {(point.confidence * 100).toFixed(0)}%
         </div>
       </div>
     </div>

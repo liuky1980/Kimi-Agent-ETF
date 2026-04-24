@@ -84,7 +84,7 @@ class BuySellPoint(BaseModel):
 
 class TimeframeSignal(BaseModel):
     """单周期信号"""
-    timeframe: str = Field(..., description="周期名称: daily/30min/5min")
+    timeframe: str = Field(..., description="周期名称: weekly/daily/hourly")
     trend: str = Field(..., description="趋势判断: up/down/consolidation/unknown")
     trend_confidence: float = Field(..., ge=0.0, le=1.0, description="趋势判断置信度")
     active_centers: int = Field(0, description="活跃中枢数量")
@@ -97,9 +97,9 @@ class TimeframeSignal(BaseModel):
 
 class ResonanceResult(BaseModel):
     """多周期共振分析结果"""
+    fiveday: TimeframeSignal = Field(..., description="五日线周期信号")
     daily: TimeframeSignal = Field(..., description="日线周期信号")
-    min30: TimeframeSignal = Field(..., description="30分钟周期信号")
-    min5: TimeframeSignal = Field(..., description="5分钟周期信号")
+    hourly: TimeframeSignal = Field(..., description="小时线周期信号")
     composite_score: float = Field(..., ge=0.0, le=100.0, description="综合共振得分")
     level: str = Field(..., description="共振等级: strong/medium-strong/medium/weak/none")
     alignment: str = Field(..., description="周期共振情况描述")
@@ -159,15 +159,19 @@ class ChanlunResult(BaseModel):
     buy_sell_points: List[BuySellPoint] = Field(default_factory=list, description="买卖点列表")
 
     # 多周期共振
+    fiveday_resonance: float = Field(0.0, ge=0.0, le=100.0, description="五日线共振得分")
     daily_resonance: float = Field(0.0, ge=0.0, le=100.0, description="日线共振得分")
-    min30_resonance: float = Field(0.0, ge=0.0, le=100.0, description="30分钟共振得分")
-    min5_resonance: float = Field(0.0, ge=0.0, le=100.0, description="5分钟共振得分")
+    hourly_resonance: float = Field(0.0, ge=0.0, le=100.0, description="小时线共振得分")
     composite_resonance: float = Field(0.0, ge=0.0, le=100.0, description="综合共振得分")
 
     # 综合建议
-    recommendation: str = Field("", description="李彪分析框架综合建议")
+    recommendation: str = Field("", description="李枛分析框架综合建议")
     summary: str = Field("", description="分析摘要")
     risk_level: str = Field("", description="风险等级: low/medium/high")
+
+    # 历史数据用于图表展示
+    macd_history: List[Dict] = Field(default_factory=list, description="MACD历史数据")
+    price_history: List[Dict] = Field(default_factory=list, description="价格历史数据")
 
     class Config:
         json_encoders = {

@@ -14,8 +14,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  AreaChart,
+  ComposedChart,
   Area,
+  Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -52,8 +54,8 @@ function normalizeChanlun(raw: Record<string, unknown>): ChanlunResult | null {
     macdAreaPrevious: Number(get('macdAreaPrevious')) || 0,
     buySellPoints: (get('buySellPoints') as ChanlunResult['buySellPoints']) || [],
     dailyResonance: Number(get('dailyResonance')) || 0,
-    min30Resonance: Number(get('min30Resonance')) || 0,
-    min5Resonance: Number(get('min5Resonance')) || 0,
+    fivedayResonance: Number(get('fivedayResonance')) || 0,
+    hourlyResonance: Number(get('hourlyResonance')) || 0,
     compositeResonance: Number(get('compositeResonance')) || 0,
     recommendation: (get('recommendation') as string) || '',
     macdHistory: (get('macdHistory') as ChanlunResult['macdHistory']) || [],
@@ -200,7 +202,7 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
     if (!data) return [];
     return data.macdHistory.map((item, idx) => ({
       ...item,
-      price: data.priceHistory[idx]?.price || 0,
+      price: data.priceHistory[idx]?.close || 0,
     }));
   }, [data]);
 
@@ -262,8 +264,8 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
               >
                 {/* 只显示代码 */}
                 <span className="font-mono text-xs">{code}</span>
-                {trendUp && <TrendingUp className="h-3 w-3 text-emerald-400" />}
-                {trendDown && <TrendingDown className="h-3 w-3 text-rose-400" />}
+                {trendUp && <TrendingUp className="h-3 w-3 text-red-400" />}
+                {trendDown && <TrendingDown className="h-3 w-3 text-green-400" />}
                 {trendConsolidation && <Minus className="h-3 w-3 text-amber-400" />}
                 {trendTransition && <AlertTriangle className="h-3 w-3 text-amber-400" />}
               </button>
@@ -322,7 +324,7 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
                 <span
                   className={cn(
                     'text-sm font-medium',
-                    data.changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    data.changePercent >= 0 ? 'text-red-400' : 'text-green-400'
                   )}
                 >
                   {data.changePercent >= 0 ? '+' : ''}{data.changePercent}%
@@ -331,7 +333,7 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
             </div>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
+                <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="date" stroke="#64748b" fontSize={11} />
                   <YAxis yAxisId="left" stroke="#64748b" fontSize={11} />
@@ -346,16 +348,20 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
                     labelStyle={{ color: '#e2e8f0' }}
                   />
                   <Legend wrapperStyle={{ fontSize: '12px' }} />
-                  <Area
+                  <Bar
                     yAxisId="left"
-                    type="monotone"
                     dataKey="histogram"
                     name="MACD柱状"
-                    stroke="#10b981"
-                    fill="#10b981"
-                    fillOpacity={0.15}
-                    strokeWidth={1.5}
-                  />
+                    barSize={2}
+                    radius={[1, 1, 0, 0]}
+                  >
+                    {chartData.map((entry, idx) => (
+                      <Cell
+                        key={`cell-${idx}`}
+                        fill={entry.histogram >= 0 ? '#ef4444' : '#10b981'}
+                      />
+                    ))}
+                  </Bar>
                   <Area
                     yAxisId="right"
                     type="monotone"
@@ -366,7 +372,7 @@ export default function ChanlunAnalysis({ initialCode }: ChanlunAnalysisProps) {
                     fillOpacity={0.1}
                     strokeWidth={1.5}
                   />
-                </AreaChart>
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
